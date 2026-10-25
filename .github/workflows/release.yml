@@ -146,7 +146,7 @@ jobs:
         helm push "dist/xray-${VERSION#v}.tgz" "${CHART_OCI}"
 
   release:
-    needs: [push-image, push-parser, push-chart]
+    needs: [push-image, push-chart]
     runs-on: ubuntu-latest
     permissions:
       contents: write
