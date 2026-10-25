@@ -19,6 +19,15 @@ updates:
     ignore:
       - dependency-name: eslint
         update-types: [version-update:semver-major]
+      # React 18 to 19 is a migration of its own, not a routine bump.
+      - dependency-name: react
+        update-types: [version-update:semver-major]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-major]
+      - dependency-name: "@types/react"
+        update-types: [version-update:semver-major]
+      - dependency-name: "@types/react-dom"
+        update-types: [version-update:semver-major]
     groups:
       react:
         patterns: [react, react-dom, "@types/react", "@types/react-dom"]
