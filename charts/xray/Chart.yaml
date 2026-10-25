@@ -1,0 +1,10 @@
+apiVersion: v2
+name: xray
+description: X-Ray — knowledge graph browser and Gemini Live voice interface
+type: application
+version: 2.0.0
+appVersion: "v2.0.0"
+sources:
+  - https://github.com/triageagent-dev/x-ray
+annotations:
+  artifacthub.io/license: Apache-2.0

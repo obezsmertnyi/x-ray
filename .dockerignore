@@ -1,0 +1,10 @@
+# Keep the build context (and the baked /repos/xray) lean. Excludes only
+# unambiguous junk — NOT source, go.mod/go.sum, or parser queries, which the
+# CGO build and the baked graph both need.
+.git
+**/node_modules
+**/.next
+bin
+**/__pycache__
+**/.venv
+*.log

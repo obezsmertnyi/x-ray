@@ -1,0 +1,124 @@
+{{ include "xray-graph.fullname" . }} is serving snapshots from {{ .Values.snapshots.mountPath }}.
+
+Reach it:
+
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "xray-graph.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+{{- end }}
+
+Endpoints on that address:
+
+  /mcp       MCP over HTTP — the search and graph tools
+  /ui        browser graph view
+  /status    which maps are registered, and which are resident
+  /metrics   search-quality counters, as JSON (not Prometheus text)
+  /healthz   what the probes use
+{{- if .Values.server.auth.enabled }}
+
+Every route but /healthz needs "Authorization: Bearer <token>" (the token in
+Secret {{ .Values.server.auth.secretName }}); open the UI once as /ui?token=<token>.
+{{- else }}
+
+No route asks for a credential (server.auth.enabled=false): anything that can
+reach this Service reads every map{{ if .Values.server.writable }} and writes notes and worked copies{{ end }}.
+{{- end }}
+
+Two things decide whether it works:
+
+1. The maps. The server exits at startup if the directory holds no
+   *.graph.gob.gz, so an empty volume shows up as CrashLoopBackOff. After that
+   the directory is watched: a snapshot dropped onto the volume is registered
+   without a restart, a rewritten one is re-registered, a removed one is
+   dropped. The exception is an NFS-backed volume, where inotify does not fire
+   and a restart is still needed.
+{{- if eq .Values.snapshots.source "ephemeral" }}
+   This release keeps the maps on an emptyDir, seeded at EVERY pod start from
+   {{ .Values.snapshots.image.repository }}:{{ .Values.snapshots.image.tag }}
+   {{- if .Values.snapshots.seed.enabled }} and from
+   {{- range .Values.snapshots.seed.images }} {{ .reference }}{{ end }}{{ end }}
+   (mounted as OCI image volumes). The volume starts empty each time and is
+   refilled from those images, so nothing on it outlives the pod.
+   {{- if .Values.server.writable }}
+   With server.writable=true that includes update_code_graph's worked copies
+   and every note `remember` wrote: they are gone on a restart, a reschedule
+   or a rollout. Use snapshots.source=pvc if they must survive.
+   {{- end }}
+   `kubectl logs -c seed` shows what was copied.
+{{- else if .Values.snapshots.seed.enabled }}
+   This release seeds the volume at pod start from
+   {{- range .Values.snapshots.seed.images }} {{ .reference }}{{ end }}
+   (mounted as OCI image volumes), copying only files the volume does not
+   already hold
+   {{- if .Values.snapshots.seed.overwrite }} (seed.overwrite=true: it REPLACES them){{ end }}.
+   `kubectl logs -c seed` shows what was copied and what was skipped.
+{{- else if eq .Values.snapshots.source "image" }}
+   This release mounts {{ .Values.snapshots.image.repository }}:{{ .Values.snapshots.image.tag }}
+   as an OCI image volume (read-only, resolved when the pod is created — a
+   moved tag needs a pod recreation).
+{{- end }}
+
+{{- if .Values.snapshots.encryption.enabled }}
+   Encrypted snapshots are opened with the age identity from Secret
+   {{ .Values.snapshots.encryption.secretName }} (key {{ .Values.snapshots.encryption.secretKey }}),
+   mounted at {{ .Values.snapshots.encryption.mountPath }}. A map encrypted to a
+   different key is skipped with a warning naming the file; the rest serve.
+{{- else }}
+   Encrypted snapshots (built with -snapshot-recipient) are SKIPPED by this
+   release: set snapshots.encryption.enabled with the Secret holding the
+   identity to serve them.
+{{- end }}
+
+2. The fingerprint. embeddings.dims ({{ .Values.embeddings.dims }}) and
+   embeddings.model ({{ .Values.embeddings.model }}) must match what built the
+   snapshots. A dims mismatch is a hard rejection — the map is skipped, with a
+   line in the log; a model-name mismatch only warns.
+
+{{- if .Values.embeddings.sidecar.enabled }}
+
+Query embedding goes to the llama.cpp sidecar in this pod
+(http://localhost:{{ .Values.embeddings.sidecar.port }}, {{ .Values.embeddings.sidecar.image }}).
+It starts before the server and gates it on /health, so the server never
+takes a search before the model is loaded. `kubectl logs <pod> -c embedder`
+is where a slow start shows up.
+{{- else }}
+
+Query embedding goes to {{ .Values.embeddings.endpoint }}. It is dialed lazily,
+so the pod starts and reports healthy without it and only searches fail.
+{{- end }}
+
+{{- if not .Values.server.writable }}
+
+The snapshot directory is mounted read-only: update_code_graph is refused and
+the remember tool is not registered. Set server.writable=true with
+snapshots.source=pvc (notes survive restarts) or snapshots.source=ephemeral
+(notes live as long as the pod) to allow in-place updates and notes.
+{{- else }}
+
+The snapshot directory is writable. update_code_graph edits a worked copy and
+{{- if .Values.server.memoryMap }}
+remember writes notes into {{ .Values.snapshots.mountPath }}/{{ .Values.server.memoryMap }}.graph.gob.gz
+(created on first use, flushed after every note);
+{{- else }}
+remember is disabled (server.memoryMap is empty);
+{{- end }}
+both flush into this volume, which is why writable mode is single-replica.
+{{- if eq .Values.snapshots.source "ephemeral" }}
+The volume is an emptyDir: a pod restart discards both and reseeds the maps.
+{{- end }}
+{{- end }}
+{{- if .Values.ingress.enabled }}
+
+{{ if .Values.server.auth.enabled -}}
+This ingress reaches every route; all but /healthz need the bearer token.
+{{- else -}}
+This ingress publishes the whole graph{{ if .Values.server.writable }}, and the write tools,{{ end }} to anyone who can
+reach it, with no credential asked: set server.auth.enabled=true or put an
+authenticating proxy in front.
+{{- end }}
+{{- end }}

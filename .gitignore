@@ -1,0 +1,52 @@
+# Binaries
+bin/
+/xray
+
+# Python
+__pycache__/
+*.pyc
+.env
+venv/
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Claude Code (local settings/skills stay out; the shipped skills are re-included)
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/upsert-memory/
+!.claude/skills/upsert-memory/SKILL.md
+!.claude/skills/upsert-memory-with-image/
+!.claude/skills/upsert-memory-with-image/SKILL.md
+!.claude/skills/run-evals/
+!.claude/skills/run-evals/SKILL.md
+.mcp.json
+.codegraph/
+
+# Go
+*.test
+*.prof
+coverage.out
+coverage.html
+
+# Local envtest control plane (hack/devenv) — kubeconfig, logs, temp data
+/.devenv/
+
+# editor/tooling backups
+*.bak
+*.bak-*
+.bak-*
+.backups/
+.mcp.json.local-bak
+
+# Web UI: dependencies and build output, and the export staged for //go:embed
+# (.gitkeep keeps the directive compiling on a checkout with no UI built).
+/ui/node_modules/
+/ui/.next/
+/ui/out/
+/internal/webui/web/*
+!/internal/webui/web/.gitkeep

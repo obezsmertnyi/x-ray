@@ -1,0 +1,95 @@
+apiVersion: xray.ai/v1
+kind: MemoryCell
+metadata:
+  name: xray-system-configuration
+  namespace: {{ .Values.namespace }}
+  labels:
+    xray.ai/kind: system_configuration
+    xray.ai/managed: "true"
+spec:
+  id: xray-system-configuration
+  kind: system_configuration
+  scope: system
+  title: X-Ray Voice Session System Prompt
+  content: ""
+  confidence: "1.0"
+  createdAt: "2026-05-14T00:00:00Z"
+  updatedAt: "2026-05-14T00:00:00Z"
+  status: active
+  voiceConfig:
+    greeting: {{ .Values.voice.systemConfig.greeting | quote }}
+    voiceModel: {{ .Values.voice.systemConfig.voiceModel | quote }}
+    voiceName: {{ .Values.voice.name | quote }}
+    systemPrompt: {{ .Values.voice.systemConfig.systemPrompt | quote }}
+    enabledTools:
+      {{- range .Values.voice.systemConfig.enabledTools }}
+      - {{ . }}
+      {{- end }}
+    {{- if .Values.voice.systemConfig.writeAllowedUsers }}
+    writeAllowedUsers:
+      {{- range .Values.voice.systemConfig.writeAllowedUsers }}
+      - {{ . }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.voice.systemConfig.maxUserDailyAudioTokens }}
+    maxUserDailyAudioTokens: {{ .Values.voice.systemConfig.maxUserDailyAudioTokens }}
+    {{- end }}
+    {{- if .Values.voice.systemConfig.maxItemContentChars }}
+    maxItemContentChars: {{ .Values.voice.systemConfig.maxItemContentChars }}
+    {{- end }}
+    {{- if hasKey .Values.voice.systemConfig "affectiveDialog" }}
+    affectiveDialog: {{ .Values.voice.systemConfig.affectiveDialog }}
+    {{- end }}
+    {{- if hasKey .Values.voice.systemConfig "proactiveAudio" }}
+    proactiveAudio: {{ .Values.voice.systemConfig.proactiveAudio }}
+    {{- end }}
+  {{- if .Values.voice.systemConfig.mcpServers }}
+  mcp:
+    servers:
+      {{- range .Values.voice.systemConfig.mcpServers }}
+      - name: {{ .name }}
+        url: {{ .url }}
+        {{- if .tokenSecret }}
+        tokenSecret:
+          name: {{ .tokenSecret.name }}
+          key: {{ .tokenSecret.key }}
+        {{- end }}
+        {{- if .tools }}
+        tools:
+          {{- range .tools }}
+          - {{ . }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+  {{- end }}
+  {{- if .Values.ui.categories }}
+  ui:
+    categories:
+      {{- range .Values.ui.categories }}
+      - kind: {{ .kind | quote }}
+        {{- if .id }}
+        id: {{ .id | quote }}
+        {{- end }}
+        {{- if .label }}
+        label: {{ .label | quote }}
+        {{- end }}
+        {{- if .color }}
+        color: {{ .color | quote }}
+        {{- end }}
+        {{- if .tag }}
+        tag: {{ .tag | quote }}
+        {{- end }}
+        {{- if .tier }}
+        tier: {{ .tier }}
+        {{- end }}
+        {{- if .angle }}
+        angle: {{ .angle }}
+        {{- end }}
+        {{- if .icon }}
+        icon: {{ .icon | quote }}
+        {{- end }}
+        {{- if .scope }}
+        scope: {{ .scope | quote }}
+        {{- end }}
+      {{- end }}
+  {{- end }}

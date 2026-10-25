@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+      {{- if .Values.metrics.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.metrics.port | quote }}
+        prometheus.io/path: "/metrics"
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Release.Name }}
+      # NOTE: OCI image-volume mounts for mental maps are removed — maps are now
+      # delivered in-band via MemoryCells (Data["graph"] → CellSyncer.AddSnapshotBytes),
+      # so no /snapshots mount is needed. The server still builds the map registry
+      # from --mental-maps-dir (empty dir is fine) and populates it from cells.
+      containers:
+        - name: xray
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            {{- include "xray.containerArgs" . | nindent 12 }}
+          env:
+            {{- include "xray.containerEnv" . | nindent 12 }}
+          ports:
+            {{- include "xray.containerPorts" . | nindent 12 }}
+          # volumeMounts for OCI map image-volumes removed — see note above.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds | default 15 }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds | default 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- if .Values.embedding.sidecar.enabled }}
+      # Native sidecar (k8s >=1.29): an initContainer with restartPolicy: Always
+      # runs for the pod's whole life, but — unlike a regular container — k8s
+      # starts it AND waits for its startupProbe to pass BEFORE the main xray
+      # container starts. This guarantees the embedder is ready before xray's
+      # first embed call, so there is no startup race / no "embed failed" 404.
+      initContainers:
+        - name: embedder
+          image: {{ .Values.embedding.sidecar.image }}
+          restartPolicy: Always
+          args:
+            {{- include "xray.embedderArgs" . | nindent 12 }}
+          ports:
+            - name: embed
+              containerPort: {{ .Values.embedding.sidecar.port }}
+          # startupProbe MUST pass before the main xray container starts (native
+          # sidecar semantics). Baked image loads in ~2s; default budget below
+          # (period * failureThreshold) covers image pull + load. Raise the
+          # threshold via sidecar.startupFailureThreshold for the hf-pull fallback.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: embed
+            periodSeconds: {{ .Values.embedding.sidecar.startupPeriodSeconds | default 5 }}
+            failureThreshold: {{ .Values.embedding.sidecar.startupFailureThreshold | default 12 }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: embed
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.embedding.sidecar.resources | nindent 12 }}
+      {{- end }}

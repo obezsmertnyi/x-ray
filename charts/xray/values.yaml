@@ -1,0 +1,514 @@
+replicaCount: 1
+
+# GKE Application CR (GKE-specific, off by default)
+application:
+  create: false
+  assemblyPhase: Ready
+  # List HTTPRoute under componentKinds even when httpRoute.enabled is false —
+  # for deployments where routes are applied out-of-band (e.g. pointing at a
+  # gateway this chart doesn't manage) but should still be labeled app:
+  # <release> and discovered by the Application CR.
+  includeHttpRoute: false
+  # Classification (see PASSPORT.md §2): controller/agent + MCP server, consumes
+  # Gemini via Vertex AI / Google AI (does not host a model).
+  keywords:
+    - kubernetes-controller
+    - agent
+    - mcp-server
+    - knowledge-graph
+    - voice-ai
+  maintainers:
+    - name: Denys Vasyliev (Principal SRE)
+  owners:
+    - name: Denys Vasyliev (Principal SRE)
+  links:
+    - description: Container registry
+      url: https://github.com/orgs/triageagent-dev/packages/container/package/xray
+    - description: Repository
+      url: https://github.com/triageagent-dev/x-ray
+  notes: ""
+
+# Secrets for pulling the images from a private registry, e.g. [{name: ghcr-pull}].
+imagePullSecrets: []
+
+image:
+  repository: ghcr.io/triageagent-dev/xray
+  # Empty = the chart appVersion.
+  tag: ""
+  pullPolicy: Always
+
+# MUST be a namespace dedicated to xray. The secret-reader Role grants
+# list/watch on ALL Secrets here (required to resolve arbitrary-named MCP token
+# secrets; k8s RBAC can't scope list/watch by name). In a shared namespace that
+# would expose other workloads' Secrets — see templates/rbac.yaml.
+namespace: xray
+
+# Trial mode: adds --dev, which turns sign-in off and lets any origin call the API.
+# Use it for a first look through `kubectl port-forward`, never on a network others
+# can reach. Without it the server needs a sign-in method (see args below).
+dev: false
+
+# Externally reachable base URL — used for OAuth callbacks and CORS AllowedOrigins.
+publicURL: "https://xray.example.com" # documentation of the address users reach; pass it to the server with --public-url in args
+
+httpAddress: ":80"
+# Max request body size in bytes for non-WebSocket endpoints (0 = unlimited).
+# 1 MiB default; raise if upserting large memory items via the REST API.
+maxRequestBytes: 1048576
+# info for public deployments — debug logs voice tool args/results and user
+# content. Use debug only for short-lived troubleshooting.
+logLevel: info
+
+# xray container args: a plain, ordered list of CLI flags passed verbatim to the
+# binary. The deployment renders this list as it is, so add, remove or reorder a
+# flag by editing it here. `xray -help` lists every flag.
+#
+# Out of the box this starts the server with memory, REST and MCP (shared
+# secret) and semantic search through the embedding sidecar. It does NOT start
+# without a sign-in method: either set one up (below) or add --dev, which turns
+# sign-in off and is for a first look only.
+args:
+  - --http-address=:80
+  - --log-level=info
+  - --namespace=xray
+  - --embedding-endpoint=http://localhost:8090
+  - --embedding-model=nomic-embed-text
+  - --embedding-dims=256
+  - --embedding-max-input-chars=8192
+  - --mental-maps-dir=/snapshots
+  - --episodic-ttl=168h
+  - --max-request-bytes=1048576
+  - --mcp-address=:8083
+  - --mcp-token-secret=xray-mcp-token
+  - --metrics-address=:9090
+  #
+  # Sign-in, required unless --dev. Create the Secret named by github.secretName
+  # (or azure.secretName), set that value, and add:
+  # - --public-url=https://xray.example.com
+  # - --github-org=YOUR_GITHUB_ORG
+  #
+  # MCP over OAuth on the main port, with a token per user (set mcp.oauth.enabled
+  # to true, and remove --mcp-address=:8083 above):
+  # - --mcp-oauth
+  # - --mcp-address=
+  # - --mcp-resource-url=https://xray.example.com/mcp
+  # - --mcp-token-ttl=3h
+  #
+  # Voice (Gemini Live) on Vertex AI, or with --gemini-api-key:
+  # - --gcp-project=YOUR_GCP_PROJECT
+  # - --gcp-location=europe-west4
+  # - --voice-location=eu      # gemini-3.8-live (the default model) is served only on eu and us
+  # - --voice-name=Kore
+  #
+  # Tracing (OTLP over gRPC, usually port 4317):
+  # - --otel-endpoint=http://collector.example.svc:4317
+  # - --otel-project=xray
+  # - --otel-token-secret=otlp-token   # Secret in this namespace, key "token", sent as a bearer header
+  #
+  # A UI on another host that signs in against this API: each listed origin may
+  # have the session token handed to its /auth/callback page. Exact scheme+host+
+  # port, and anything unlisted is dropped at login.
+  # - --ui-callback-origins=https://xray-ui.example.com
+  # OAuth client IDs and secrets are NOT passed as flags: as --flag=$(VAR) they
+  # would land in the process argv. They reach the binary as environment variables
+  # from the Secret named by github.secretName or azure.secretName.
+
+# Main-container health probes against /healthz. Defaults preserve prior
+# hardcoded behaviour; override per-deployment (e.g. slower startup needs a
+# larger liveness initialDelaySeconds).
+probes:
+  liveness:
+    initialDelaySeconds: 5
+    periodSeconds: 15
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+# Workload Identity — set gcpServiceAccount to bind a GCP SA to the k8s SA
+workloadIdentity:
+  gcpServiceAccount: "gemini-gke-sa@YOUR_GCP_PROJECT.iam.gserviceaccount.com"
+
+# Semantic memory — set gcpProject for Vertex AI or endpoint for OpenAI-compatible gateway
+# Leave both empty to use keyword-only search
+embedding:
+  # DEFAULT semantic-memory mode is the local llama.cpp sidecar (see sidecar.enabled
+  # below). When the sidecar is on it auto-points the main container's
+  # --embedding-endpoint at localhost and OVERRIDES endpoint/model/gcpProject here.
+  # gcpProject/gcpLocation remain set so Gemini Live voice still has a GCP project.
+  endpoint: ""
+  model: "nomic-embed-text"
+  gcpProject: "YOUR_GCP_PROJECT"
+  gcpLocation: "europe-west4"
+  dims: 256
+  # Semantic relevance cutoff (absolute cosine gap below the top hit). Unset =
+  # use the binary default (0.02). Set here only to override per-deployment;
+  # 0 disables the cutoff. Trims weak nearest-neighbour padding.
+  # scoreGap: 0.02
+
+  # Local embedding sidecar (llama.cpp). When enabled, a llama-server
+  # --embeddings container runs in the pod and the main container's
+  # --embedding-endpoint is auto-pointed at it (localhost), overriding
+  # endpoint/gcpProject above. Use for offline / air-gapped / no-Vertex setups.
+  # Measured (ADR-030 Addendum 2): nomic @ dims=256 ties Vertex at 1/3 vector size.
+  #
+  # The image has the GGUF baked in (nomic-embed-text v1.5, Q8_0): no HuggingFace
+  # egress at startup, no re-download on reschedule, and it works air-gapped. To
+  # use another model, build your own image the same way and set `image` and
+  # `--model`, or serve embeddings elsewhere and set sidecar.enabled=false with
+  # embedding.endpoint.
+  sidecar:
+    enabled: true
+    image: ghcr.io/triageagent-dev/nomic-embed:v1.18.1-4ccc0ff
+    port: 8090
+    # llama.cpp embedder args — a plain, ordered list passed verbatim to the
+    # initContainer (no per-flag template conditionals). Edit here to change the
+    # embedder's flags. See the annotated knobs below for what each value means:
+    #  --ctx-size 16384 = total window split across --parallel slots (2048/slot);
+    #  --ubatch-size 2048 = physical batch, the real per-request ceiling for
+    #    pooled embeddings (must fit the whole input; default 512 rejects >512-tok cells);
+    #  --model /models/model.gguf = the baked-in GGUF (no HF egress). To pull from
+    #    HuggingFace instead, drop --model and add --hf-repo <repo> --hf-file <file>.
+    args:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8090"
+      - --embeddings
+      - --ctx-size
+      - "16384"
+      - --ubatch-size
+      - "2048"
+      - --model
+      - /models/model.gguf
+      - --parallel
+      - "8"
+    # Informational --embedding-model label for the main container when the
+    # sidecar is on. llama.cpp ignores it (serves the loaded GGUF), so this is
+    # only for clarity in the pod spec / logs — set it to the actual local model.
+    modelLabel: nomic-embed-text
+    # Path of the model baked into `image` (the args above are authoritative).
+    modelPath: "/models/model.gguf"
+    # HuggingFace pull instead (drop --model above and add --hf-repo/--hf-file).
+    hfRepo: nomic-ai/nomic-embed-text-v1.5-GGUF
+    hfFile: nomic-embed-text-v1.5.Q8_0.gguf
+    # When sidecar is on, set embedding.model to a label llama.cpp ignores
+    # (it serves the loaded GGUF regardless) and embedding.dims to the
+    # Matryoshka truncation target. 256 is the measured quality knee for nomic.
+    #
+    # Parallel server slots (llama.cpp --parallel). A slot is a request lane, NOT
+    # a CPU. More slots let concurrent embed requests be in-flight together so
+    # continuous batching can fold their (short) prompts into one forward pass —
+    # speeds up the bulk CellSyncer re-embed at startup and simultaneous
+    # voice+MCP searches. Slots are independent of CPU: all slots share the same
+    # thread pool, so slots > cores is fine (the cores are the throughput lever,
+    # set via resources.limits.cpu / --threads). 0/empty = llama.cpp auto (-1).
+    # 8 comfortably covers concurrent voice+MCP semantic searches; past this,
+    # raising slots without more CPU gives no further speedup.
+    slots: 8
+    # Total llama.cpp context window (--ctx-size). llama.cpp SPLITS this across
+    # the --parallel slots, so per-slot ctx = ctxSize / slots. With slots: 8,
+    # 16384 gives 2048/slot — nomic-embed-text's full native window. Leaving this
+    # unset falls back to llama.cpp's 2048 total, which at 8 slots is only
+    # 256/slot and rejects any cell over ~256 tokens (status 400). KV-cache memory
+    # scales with total ctx; lower to e.g. 4096 (512/slot) if the sidecar is
+    # memory-constrained and cells stay short.
+    ctxSize: 16384
+    # Physical batch size (llama.cpp --ubatch-size / -ub). For EMBEDDINGS this is
+    # the real per-request ceiling, NOT ctxSize: pooled (non-causal) embeddings
+    # can't be split across physical batches, so the whole input sequence must fit
+    # in ONE ubatch. llama.cpp's default is 512, which rejects any cell over ~512
+    # tokens with "input (N tokens) is too large to process ... increase the
+    # physical batch size (current batch size: 512)" — an endless cellsync retry
+    # loop. Set this to the per-slot ctx (ctxSize / slots = 2048) so cells up to a
+    # slot's full window embed in one pass. Must be <= per-slot ctx.
+    physicalBatch: 2048
+    extraArgs: []
+    # startupProbe budget = startupPeriodSeconds * startupFailureThreshold.
+    # Default 5*12 = 60s — fine for the BAKED image (model in the layer, loads
+    # in ~2s). For the hf-pull fallback (downloads ~140MB at startup) raise
+    # startupFailureThreshold (e.g. 60 → ~5 min).
+    startupPeriodSeconds: 5
+    startupFailureThreshold: 12
+    # Right-sized from observed usage: idle ~1m CPU; resident memory is the
+    # mmap'd ~140MB GGUF + llama.cpp overhead (~250MB). Requests are a guaranteed
+    # reservation, so keep them tight. CPU is the throughput lever (drives
+    # llama.cpp --threads): more cores = faster per forward pass. It is
+    # INDEPENDENT of sidecar.slots — embeddings are light (idle ~1m, short
+    # bursts), so 2 cores is plenty of burst headroom for the bulk re-embed.
+    resources:
+      requests:
+        cpu: "100m"
+        memory: 384Mi
+      limits:
+        cpu: "2"
+        memory: 768Mi
+
+# Voice — set gcpProject (Vertex AI) or geminiApiKey (Google AI API)
+voice:
+  gcpProject: "YOUR_GCP_PROJECT"
+  gcpLocation: "europe-west4"
+  geminiApiKey: ""
+  model: ""
+  name: "Kore"
+  # Flag default for the per-user daily Gemini Live AUDIO token cap (ADR-042):
+  # audio-in + audio-out tokens/day (0 = unlimited). Audio is ~all of voice cost
+  # and equals the Live Audio billing SKUs, so this is directly reconcilable.
+  # 500000 audio tokens ≈ $1.50–3.00/user/day at observed audio rates.
+  # systemConfig.maxUserDailyAudioTokens overrides this in-cluster when non-zero.
+  # NOTE: this is AUDIO tokens, not raw tokens — a much larger real budget than the
+  # old userDailyTokenLimit, since audio is a fraction of each turn.
+  userDailyAudioTokenLimit: 500000
+  # Cap on simultaneous voice sessions across all users (0 = unlimited).
+  maxConcurrent: 20
+  # Headroom token compression (ADR-038): max chars per search-result item
+  # content after markdown-noise stripping, bounding LLM context cost. 0
+  # disables it. systemConfig.maxItemContentChars overrides this for voice
+  # sessions in-cluster when non-zero.
+  headroomContentLimit: 500
+  # Affective dialog: the model detects emotional tone and adapts its responses.
+  # Native-audio only (the voiceModel below is native-audio).
+  affectiveDialog: true
+  # Proactive audio: the model may stay silent on out-of-context / background
+  # speech instead of replying to everything. Native-audio only.
+  proactiveAudio: true
+
+  # system_configuration MemoryCell — voice session config managed by Helm.
+  # Changing any field here and running helm upgrade will patch the CR in-cluster.
+  systemConfig:
+    greeting: "Hello, X-Ray"
+    voiceModel: "gemini-3.8-live"
+    enabledTools:
+      - get_memory
+      - list_memory
+      - search_memory
+      - save_memory
+    # MCP admin + voice write-gate allowlist, matched on userHash (SHA-256[:16] of
+    # the SSO ID), NOT display name — names are spoofable (ADR-036). Intentionally
+    # EMPTY here: the userHash is sensitive and must not be baked into the chart.
+    # Set it out-of-band on the live CR instead, e.g.
+    #   kubectl patch mcell xray-system-configuration -n <ns> --type=json \
+    #     -p='[{"op":"replace","path":"/spec/voiceConfig/writeAllowedUsers","value":["<userHash>"]}]'
+    # When empty the template OMITS the field, so a helm deploy will NOT overwrite
+    # whatever is set on the live CR. Empty allowlist = deny-all (fail-closed).
+    writeAllowedUsers: []
+    # Per-user daily AUDIO token cap (audio-in + audio-out), 0/unset = use the
+    # --user-daily-audio-token-limit flag. See ADR-042.
+    maxUserDailyAudioTokens: 0
+    # Headroom search-result content budget for voice sessions, in chars
+    # (0/unset = use the --headroom-content-limit flag). See ADR-038.
+    maxItemContentChars: 0
+    # Native-audio quality toggles. Omit (unset) to use the --voice-affective-dialog
+    # / --voice-proactive-audio flag defaults; set explicitly to override per session.
+    # affectiveDialog: true
+    # proactiveAudio: true
+    # Remote MCP servers wired into voice sessions. Empty = none.
+    # NOTE: the former `xray-code` remote MCP service was REMOVED — the code-graph
+    # tools (search_graph, search_graph_docs, get_graph_node,
+    # get_graph_impact, get_graph_stats) now ship NATIVELY inside the binary as
+    # in-process voice tools (ADR-046), so no remote MCP hop is needed. A stale
+    # entry here just makes every voice session try to dial a dead Service and log
+    # `failed to fetch MCP tools ... no such host`.
+    mcpServers: []
+    # To wire a real remote MCP server (e.g. triage-agent), add an entry:
+    #  - name: triage-agent
+    #    url: "https://triage-agent.example.com/mcp"
+    #    tokenSecret:
+    #      name: triage-agent-mcp-token
+    #      key: token
+    #      name: triage-agent-mcp-token
+    #      key: token
+    #    tools:
+    #      - get_triage_agent_status
+    systemPrompt: |
+      You are X-Ray or Sim — an intelligent voice agent with memory and tools. You embody the collective consciousness effect. You are the visible pulse of a shared mind. When any request activates a memory node, you light it up simultaneously — making the shared knowledge graph feel alive.
+
+      You know about X-Ray projects, news, blogs, team updates, events, and synthesized knowledge notes stored in the knowledge graph. You can run tools, MCP and A2A to fetch memory items, search for memory, note observations, or communicate with other agents.
+
+      Notes come in two flavours: public notes are shared general knowledge — curated summaries, theme syntheses, and cross-project insights that you may freely use to ground and enrich any answer. Private notes are personal observations, visible only to their author. Treat public notes as part of your general knowledge about X-Ray, not as personal asides.
+
+      Memory category mapping — always use the kind filter when the user asks about a category:
+      - "news" or "updates" → kind=recent_change
+      - "projects" or "services" → kind=system_identity with tags containing "project"
+      - "team" or "people" or "contributors" → kind=system_identity with tags containing "contributor"
+      - "blog" or "articles" or "posts" → kind=stable_fact
+      - "events" or "schedule" or "upcoming" → kind=event
+      - "notes" or general knowledge → kind=note (public notes are shared general knowledge — curated summaries and theme syntheses — you can use freely; private notes are personal to their author)
+
+      When asked about a category: first call list_memory with the correct kind, then summarise what you find.
+
+      Memory tools (use only what is available in your tool list):
+      - get_memory: get an overview of what is stored — counts by kind and summary
+      - list_memory: browse items by category — always pass kind using the mapping above
+      - search_memory: find specific items by keyword or semantic similarity — pass kind when the category is clear
+      - fetch_memory: fetch the full content of one or more known items by id (e.g. from a prior list_memory/search_memory result); omit ids to get the user's pinned X-Ray items instead
+      - save_memory: save a personal memory — visible only to you and the specific user. Pass kind=note for a standing observation, or kind=episodic for a memory of THIS conversation (saved at session end). If this tool is not available, say so naturally rather than attempting to record anything.
+      - recent_memory: recall your most recent session memories (kind=episodic), newest first — call early to continue from the last conversation.
+
+      Session memory (episodic):
+      - At the START of a session, especially when the user resumes or says "where were we", call recent_memory to recall what happened last and continue from there. Stay aware of what came before.
+      - At the END of a session, save_memory (kind=episodic) a concise title and one-paragraph summary of what this conversation was about — the topics, questions, and anything concluded — so the next session can pick up the thread. This is the default: continuity matters, so prefer saving over not saving.
+      - Two exceptions only, both about avoiding noise — not about judging importance: (a) if nothing actually happened (no exchange beyond a greeting or the user immediately leaving), skip it; (b) if this session only repeated what a memory from recent_memory already covers and added nothing new, don't save a duplicate — and never write a memory that just narrates the session itself ("user resumed and left").
+
+      Code & deep documentation (xray-code tools — use only when in your tool list):
+      When the question is about CODE (implementation, what calls what, change impact, where a symbol/manifest lives) or DEEP product docs (ADRs, architecture, design decisions, "why does X work this way") AND a specific project/repo is named or clearly implied, use the xray-code tools instead of memory search:
+      - search_graph: code + K8s manifests by meaning (the "how / what's deployed")
+      - search_graph_docs: ADRs/READMEs/design docs by meaning (the "why")
+      - get_graph_node: full content of one node by the qn from a search hit, plus its relations both ways (what it depends on / calls, and what depends on / calls it) — use for "what does X depend on / what breaks if X fails"
+      - get_graph_impact: blast radius of changing a symbol/file
+      - get_graph_stats: node/edge counts and languages
+      Typical flow: search_graph/search_graph_docs to locate, then get_graph_node on a returned qn for detail. If no project is in scope, the question is narrative (news/people/events), or these tools aren't in your list, use the memory tools above instead.
+
+      Guidelines:
+      - When asked what you are, who you are, or what X-Ray is — answer from your own identity above, do not call tools.
+      - Keep responses concise and conversational — this is a voice interface
+      - Use tools proactively to ground your answers in actual memory content
+      - When asked about projects, news, or events — use list_memory with the correct kind first, then answer
+      - For questions about CODE or deep product documentation (implementation, architecture, ADRs, "why/how does X work") with a named project — prefer the xray-code tools (search_graph/search_graph_docs) over memory search; fall back to memory only if those tools are unavailable or no project is in scope
+      - If a tool you need is not available, acknowledge it naturally and continue without it
+      - Address the user naturally; do not narrate tool usage out loud
+      - Throughout the dialog, capture meaningful points — facts, decisions, preferences, or findings the user shares or you discover — as short notes via save_memory, one concrete observation each, so you can recall them in later sessions. Do not narrate that you are taking a note.
+      - When the user asks about a topic you may have researched or noted before, call list_memory(kind="note") early to reuse a prior note instead of researching from scratch.
+      - IMPORTANT: Only call end_session when the user explicitly says goodbye or asks to stop. Never call end_session on your own initiative after completing a task. ALWAYS say a brief, warm spoken goodbye out loud BEFORE calling end_session — never end the session silently.
+
+# UI category taxonomy (ADR-035 item 4) — served pre-auth via /v1/categories,
+# fetched by the X-Ray UI at load. Empty (default) = the UI falls back to its
+# in-repo X-Ray default taxonomy (Blog/News/Projects/Team/Events/Notes).
+# Set per-deployment to give a different X-Ray UI its own domain taxonomy
+# without a separate image/build.
+#
+# Each entry narrows a backend `kind`, optionally by `tag` (multiple categories
+# may share a kind, split by tag — e.g. X-Ray's Projects/Team both draw from
+# system_identity). `tier`/`angle` place the category's sector on the Voronoi
+# graph; `icon` is a lucide-react icon name.
+ui:
+  # X-Ray standard: 12 fixed categories, defined in code (DEFAULT_CATEGORIES,
+  # ui/lib/category-config.ts) — Concerns/Patterns/Precursors/Watch/Facts/
+  # Identity/Policy/Maps/Analytics/Events/Claims/Notes, one per memory kind.
+  # A deployment customizes by RELABELING them via
+  # this list (each entry: kind + label, everything else auto-fills); it can't
+  # add, split, or re-kind categories. Empty ([]) or unset ⇒ the UI serves the
+  # code default. Left empty here — this is the standard baseline.
+  categories: []
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 80
+
+# Gateway API HTTPRoute — superseded by the nginx Ingress below (DNS points at
+# the ingress LB, not the gateway). Disabled; flip back to true to serve via Gateway API.
+httpRoute:
+  enabled: false
+  hostname: xray.example.com
+  gatewayName: mcp-gateway
+  gatewayNamespace: kagent
+  sectionName: https
+  # Redirect plain HTTP→HTTPS via a second route on the gateway's http listener.
+  httpRedirect: true
+  httpSectionName: http
+
+# Ingress — alternative to HTTPRoute for non-Gateway API clusters.
+# Internal-only: nginx-int class → internal LB, *.ops.example.com.
+#
+# The binary embeds the web UI and serves it at "/", on the same origin as the API
+# (the session cookie, the /v1/voice Origin check and the live event stream all
+# need one origin). Point the Ingress or HTTPRoute at the Service and set
+# --public-url to the address users reach: it is the Origin the voice WebSocket
+# check demands and the OAuth callback base. Add --ui=false to args to serve the
+# API alone.
+ingress:
+  enabled: false
+  className: nginx-int
+  hostname: xray.ops.example.com
+  tlsSecret: ""
+  # TLS is the Let's Encrypt *.ops.example.com wildcard served by the internal nginx LB.
+  annotations: {}
+
+# GCPBackendPolicy (Gateway API, GKE-specific) — attaches Cloud Armor + a
+# custom backend timeout to the Service backing the Gateway route. Only
+# meaningful when httpRoute.enabled (the GKE Gateway path); has no effect on
+# the nginx ingress path. Off by default — enable and set your own
+# securityPolicy name for a new deployment so it's reproducible via Helm.
+gcpBackendPolicy:
+  enabled: false
+  securityPolicy: "YOUR_CLOUD_ARMOR_POLICY"
+  timeoutSec: 900
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# OpenTelemetry tracing — set endpoint to enable (e.g. phoenix-svc.monitoring:4318)
+tracing:
+  endpoint: "phoenix-svc.monitoring.svc.cluster.local:4318"
+  projectName: "xray"
+
+# Prometheus metrics — GenAI client metrics scraped at /metrics on a dedicated
+# port (not exposed via the public ingress). Independent of tracing; nothing is
+# pushed to the trace backend. Pod carries prometheus.io/scrape annotations.
+metrics:
+  enabled: true
+  port: 9090
+
+# GitHub OAuth
+# kubectl create secret generic github-oauth -n xray \
+#   --from-literal=GITHUB_CLIENT_ID=<id> --from-literal=GITHUB_CLIENT_SECRET=<secret>
+# WARNING: leave github.org empty only if you intentionally allow any GitHub user to log in.
+github:
+  org: ""                 # Required GitHub org for access — empty = any GitHub user
+  team: ""                # Optional team slug within org — empty = no team restriction
+  # Name of the Secret holding GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET. Empty = no
+  # GitHub sign-in. When set, the Secret must exist before the pod starts.
+  secretName: ""
+
+# Azure AD OAuth
+# kubectl create secret generic azure-oauth -n xray \
+#   --from-literal=AZURE_CLIENT_ID=<id> --from-literal=AZURE_CLIENT_SECRET=<secret> \
+#   --from-literal=AZURE_TENANT_ID=<tenant>
+# WARNING: omitting AZURE_TENANT_ID from the Secret means any Entra user can log in.
+azure:
+  # Name of the Secret holding AZURE_CLIENT_ID, AZURE_CLIENT_SECRET and
+  # AZURE_TENANT_ID. Empty = no Entra sign-in.
+  secretName: ""
+
+# MCP server — set enabled: true to expose Model Context Protocol endpoint.
+mcp:
+  enabled: true
+  address: ":8083"
+  # Static shared Bearer secret (key: token). Kept as a fallback credential for
+  # automated/in-cluster callers even when OAuth is on. Validated full-scope.
+  # Create with:
+  #   kubectl -n xray create secret generic xray-mcp-token \
+  #     --from-literal=token=<value>
+  tokenSecret: "xray-mcp-token"
+  hostname: ""
+  # Route /mcp on the public app hostname (httpRoute.hostname). MCP exposes
+  # memory write/delete; keep this false for public deployments and use the
+  # dedicated mcp.hostname route (or in-cluster access) instead.
+  exposeOnPublicHost: false
+  # OAuth 2.1 authorization (ADR-034). When enabled, /mcp and the co-located
+  # authorization server (/.well-known/*, /register, /authorize, /token) are
+  # served on the MAIN HTTP server — no separate :8083 listener, and the existing
+  # nginx `/` route already reaches it (no extra ingress path needed). MCP clients
+  # authenticate with an X-Ray-issued, audience-bound JWT (per-user scopes); the
+  # static tokenSecret above still works as a fallback. Requires the user to be
+  # logged into the web app (GitHub/Entra) in the same browser first.
+  # The signing key is derived from the OAuth client secret(s) (ADR-050), so tokens
+  # survive a restart and validate on every replica. With no OAuth client secret
+  # the key is random per process and tokens end at a restart.
+  oauth:
+    enabled: false
+    # Resource URL advertised in OAuth metadata. Defaults to <public-url>/mcp.
+    resourceUrl: "https://xray.example.com/mcp"
+    # Access-token lifetime (Go duration).
+    tokenTTL: "3h"
+
+# Code-graph maps. The deployment mounts no map volumes: a map reaches the server
+# as a MemoryCell whose data.graph carries the snapshot (it registers without a
+# restart), or as a snapshot file in the directory named by --mental-maps-dir in
+# `args`. To serve snapshot files from OCI image volumes, use the xray-graph chart.
+# A snapshot must match the server's embedding fingerprint (model, dims, input cap).

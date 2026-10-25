@@ -1,0 +1,14 @@
+X-Ray
+Copyright 2026 Denys Vasyliev
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It includes the following third-party software, each under its own license:
+
+  - Tree-sitter and its language grammars (MIT), the parser behind the code graph.
+  - age, filippo.io/age (BSD-3-Clause), for encrypted snapshots.
+  - Kubernetes, controller-runtime and client-go (Apache-2.0).
+  - mcp-go, github.com/mark3labs/mcp-go (MIT), the MCP server and client.
+  - hnsw, github.com/fogfish/hnsw (MIT), the nearest-neighbour index.
+
+The full list of Go dependencies and their licenses is in go.mod and go.sum.

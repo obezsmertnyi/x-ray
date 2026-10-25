@@ -1,0 +1,608 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.0
+  name: memorycells.xray.ai
+spec:
+  group: xray.ai
+  names:
+    kind: MemoryCell
+    listKind: MemoryCellList
+    plural: memorycells
+    shortNames:
+    - memcell
+    - mcell
+    singular: memorycell
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.kind
+      name: Kind
+      type: string
+    - jsonPath: .spec.status
+      name: Status
+      type: string
+    - jsonPath: .spec.scope
+      name: Scope
+      type: string
+    - jsonPath: .status.indexed
+      name: Indexed
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          MemoryCell represents a single memory cell in the X-Ray distributed memory system.
+          Each fact, hypothesis, concern, or watch item is an independent Kubernetes object
+          whose content is embedded by the reconciler into the in-process HNSW graph for
+          semantic search.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              MemoryCellSpec is the spec of a single memory cell.
+              Mirrors MemoryItemSpec exactly plus an Embedding field that is set
+              by the reconciler after the first embed call.
+            properties:
+              confidence:
+                type: string
+              content:
+                type: string
+              createdAt:
+                format: date-time
+                type: string
+              data:
+                additionalProperties:
+                  description: DataEntry is a named blob stored in MemoryCellSpec.Data.
+                  properties:
+                    bytes:
+                      description: Bytes is the base64-encoded content of the blob.
+                      type: string
+                    mime:
+                      description: Mime is the MIME type (e.g. "image/jpeg"). Optional.
+                      type: string
+                  required:
+                  - bytes
+                  type: object
+                description: Data holds arbitrary named blobs (e.g. "image") keyed
+                  by name.
+                type: object
+              embedding:
+                description: |-
+                  Embedding holds the base64-encoded little-endian float32 vector.
+                  Written by the reconciler; never set by callers.
+                type: string
+              eventDate:
+                description: |-
+                  EventDate is the date/time of the event, for kind=event cells.
+                  RFC3339 format. Only meaningful when Kind == "event".
+                type: string
+              evidenceRefs:
+                items:
+                  type: string
+                type: array
+              id:
+                type: string
+              kind:
+                type: string
+              links:
+                items:
+                  description: |-
+                    ThoughtLink is a directed associative edge between two memory cells.
+                    Links capture causal/correlative chains between cells, enabling graph traversal
+                    at retrieval time.
+                  properties:
+                    evidenceRefs:
+                      description: EvidenceRefs optionally cites the incidents or
+                        events that support this link.
+                      items:
+                        type: string
+                      type: array
+                    relation:
+                      description: |-
+                        Relation describes the type of association.
+                        Valid values: triggers, caused_by, correlates_with, precedes, explains, contradicts
+                      type: string
+                    toId:
+                      description: ToID is the target cell ID.
+                      type: string
+                    weight:
+                      description: Weight is the model-assigned confidence for this
+                        link (0.0–1.0).
+                      type: number
+                  required:
+                  - relation
+                  - toId
+                  - weight
+                  type: object
+                type: array
+              mcp:
+                description: MCP holds remote MCP server connections. Only used when
+                  Kind == "system_configuration".
+                properties:
+                  servers:
+                    description: |-
+                      Servers lists remote MCP servers whose tools are fetched at session start
+                      and registered as native voice tools.
+                    items:
+                      description: MCPServerConfig describes a remote MCP server whose
+                        tools are exposed to the voice model.
+                      properties:
+                        name:
+                          description: Name is a short identifier used for logging
+                            (e.g. "triage-agent").
+                          type: string
+                        tokenSecret:
+                          description: |-
+                            TokenSecret references a Kubernetes Secret containing the Bearer token.
+                            The key defaults to "token" if not specified.
+                          properties:
+                            key:
+                              description: Key is the key within the Secret whose
+                                value is used as the Bearer token.
+                              type: string
+                            name:
+                              description: Name is the name of the Secret.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        tools:
+                          description: |-
+                            Tools is an optional allowlist of tool names to register from this server.
+                            If empty, all tools are registered.
+                          items:
+                            type: string
+                          type: array
+                        url:
+                          description: URL is the base URL of the MCP server (e.g.
+                            "https://triage.internal/mcp").
+                          type: string
+                      required:
+                      - name
+                      - url
+                      type: object
+                    type: array
+                type: object
+              origin:
+                description: |-
+                  Origin is the cell's provenance (ADR-053): observed (written by code
+                  from facts), derived (written by a model, a prior claim and never
+                  evidence), human (written by an identified person; outranks derived) or
+                  verified (derived, then passed a check). A cell without one is derived.
+                enum:
+                - observed
+                - derived
+                - human
+                - verified
+                type: string
+              scope:
+                description: |-
+                  Scope is the privacy axis (ADR-037): "public" (shared — visible on the
+                  graph and in user-facing search; the default) or "private" (isolated to
+                  Subject; hidden from everyone else). system_configuration cells are always
+                  treated as private regardless of scope.
+                type: string
+              staleAfter:
+                format: date-time
+                type: string
+              status:
+                type: string
+              subject:
+                type: string
+              supersedes:
+                items:
+                  type: string
+                type: array
+              tags:
+                items:
+                  type: string
+                type: array
+              title:
+                type: string
+              ui:
+                description: |-
+                  UI holds UI display configuration (category taxonomy). Only used when
+                  Kind == "system_configuration".
+                properties:
+                  categories:
+                    description: |-
+                      Categories is the ordered list of display categories. Empty means the UI
+                      falls back to its in-repo default taxonomy.
+                    items:
+                      description: |-
+                        CategoryConfig defines one UI display category — a domain-facing grouping
+                        (e.g. "Projects", "Active Concerns") layered over the generic (kind, tag)
+                        backend (ADR-035). Served pre-auth via /v1/categories so the X-Ray UI can
+                        render a per-deployment taxonomy without a build-time fork.
+                        Only Kind is required. Every other field is optional and filled with a
+                        sensible default by the UI at load time (ID from a slug of the label, Label
+                        from the kind, Angle evenly spaced by position, Tier a constant, Color/Icon
+                        from rotating palettes) — so a category can be as terse as `{kind:
+                        active_concern, label: Concerns}`. An explicit value always wins over its
+                        default. See ui/lib/category-config.ts loadRuntimeCategories.
+                      properties:
+                        angle:
+                          description: |-
+                            Angle is the fixed angular sector in radians so graph regions don't
+                            overlap. Defaults to an even spacing around the circle by position when
+                            unset.
+                          type: number
+                        color:
+                          description: |-
+                            Color is the node/section color (hex, e.g. "#818cf8"). Defaults to a
+                            rotating palette entry when empty.
+                          type: string
+                        icon:
+                          description: |-
+                            Icon is a lucide-react icon name (e.g. "FolderOpen"). Defaults to a
+                            rotating icon set when empty or unrecognized.
+                          type: string
+                        id:
+                          description: |-
+                            ID is the stable category id — the route segment (/k/<id>) and group key.
+                            Defaults to a slug of Label when empty.
+                          type: string
+                        kind:
+                          description: Kind is the raw backend memory kind this category
+                            draws from.
+                          type: string
+                        label:
+                          description: |-
+                            Label is the display label (e.g. "Projects"). Defaults to a title-cased
+                            form of Kind when empty.
+                          type: string
+                        scope:
+                          description: |-
+                            Scope marks a category private (isolated/personal) vs public (shared).
+                            Empty means public.
+                          type: string
+                        tag:
+                          description: |-
+                            Tag optionally narrows Kind — an item matches only if it carries this tag.
+                            Empty means this is the bare-kind fallback for Kind.
+                          type: string
+                        tier:
+                          description: |-
+                            Tier is the radial tier 0..1 (smaller = closer to centre) on the Voronoi
+                            graph. Defaults to a constant when unset.
+                          type: number
+                      required:
+                      - kind
+                      type: object
+                    type: array
+                type: object
+              updatedAt:
+                format: date-time
+                type: string
+              voiceConfig:
+                description: VoiceConfig holds voice session parameters. Only used
+                  when Kind == "system_configuration".
+                properties:
+                  affectiveDialog:
+                    description: |-
+                      AffectiveDialog enables Gemini Live affective dialog: the model detects
+                      emotional tone and adapts its responses. Native-audio only. nil means
+                      "not set in CR" — the caller falls back to the --voice-affective-dialog
+                      flag; non-nil overrides it.
+                    type: boolean
+                  enabledTools:
+                    description: EnabledTools is the allowlist of voice tool names.
+                      Empty means all tools.
+                    items:
+                      type: string
+                    type: array
+                  greeting:
+                    description: Greeting is the opening line sent as the first user-turn
+                      after connect.
+                    type: string
+                  maxItemContentChars:
+                    description: |-
+                      MaxItemContentChars caps each search-result item's content (after
+                      markdown-noise stripping) before the tool response is serialised, to
+                      bound LLM context cost. 0 means "not set in CR" — the caller falls back
+                      to the --headroom-content-limit flag. See ADR-038.
+                    type: integer
+                  maxUserDailyAudioTokens:
+                    description: |-
+                      MaxUserDailyAudioTokens caps the Gemini Live AUDIO tokens (audio input +
+                      audio output) an authenticated user may spend per UTC calendar day. Audio is
+                      ~all of voice cost and equals the Live Audio billing SKUs, so the cap is
+                      visible and reconcilable. 0 means unlimited. Overrides the
+                      --user-daily-audio-token-limit flag when non-zero. See ADR-042.
+                    format: int64
+                    type: integer
+                  proactiveAudio:
+                    description: |-
+                      ProactiveAudio enables Gemini Live proactive audio: the model may stay
+                      silent on out-of-context / background speech instead of replying. Native-
+                      audio only. nil means "not set in CR" — the caller falls back to the
+                      --voice-proactive-audio flag; non-nil overrides it.
+                    type: boolean
+                  systemPrompt:
+                    description: |-
+                      SystemPrompt is the system instruction sent to Gemini Live at session start.
+                      Falls back to Content if empty.
+                    type: string
+                  voiceModel:
+                    description: VoiceModel is the Gemini Live model ID.
+                    type: string
+                  voiceName:
+                    description: VoiceName is the Gemini prebuilt voice (e.g. "Kore").
+                    type: string
+                  writeAllowedUsers:
+                    description: |-
+                      WriteAllowedUsers is the list of usernames (GitHub login or UPN short form)
+                      permitted to invoke memory write operations (upsert, delete) via voice.
+                      Empty means write tools are disabled for all users.
+                    items:
+                      type: string
+                    type: array
+                type: object
+            required:
+            - confidence
+            - content
+            - createdAt
+            - id
+            - kind
+            - status
+            - title
+            - updatedAt
+            type: object
+          status:
+            description: MemoryCellStatus reports reconciler observations.
+            properties:
+              conditions:
+                description: Conditions holds standard Kubernetes condition list.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              indexed:
+                description: Indexed is true when the cell is present in the HNSW
+                  graph.
+                type: boolean
+              lastIndexedAt:
+                description: LastIndexedAt is the timestamp of the last successful
+                  embed+index.
+                format: date-time
+                type: string
+              stats:
+                description: Stats holds runtime counters for system_configuration
+                  cells.
+                properties:
+                  embedCacheHits:
+                    format: int64
+                    type: integer
+                  embedCalls:
+                    format: int64
+                    type: integer
+                  keywordHits:
+                    format: int64
+                    type: integer
+                  kwTrigramHits:
+                    format: int64
+                    type: integer
+                  kwVoiceHits:
+                    format: int64
+                    type: integer
+                  kwVoiceMisses:
+                    format: int64
+                    type: integer
+                  memoryCells:
+                    format: int64
+                    type: integer
+                  oauthClients:
+                    description: |-
+                      OAuthClients holds the MCP OAuth dynamic-client registrations (RFC 7591),
+                      persisted so a client registered before a restart (e.g. Claude Code) is still
+                      known afterward and across replicas — otherwise /authorize rejects its cached
+                      client_id with "redirect_uri not registered". Public clients (PKCE, no secret),
+                      so only the client_id and its redirect_uris are stored; nothing secret. Pruned
+                      to a bounded set on flush. See ADR-049.
+                    items:
+                      description: |-
+                        OAuthClientReg is one MCP OAuth dynamic-client registration persisted to
+                        system_configuration CR status so it survives restarts and is visible to every
+                        replica. Public client (PKCE, no secret) — only the client_id and the allowed
+                        redirect_uris are stored, which are not secret.
+                      properties:
+                        clientId:
+                          description: ClientID is the issued public client identifier.
+                          type: string
+                        issuedAt:
+                          description: IssuedAt is the registration time (RFC3339),
+                            used as the eviction key.
+                          type: string
+                        redirectUris:
+                          description: RedirectURIs is the allowlist the /authorize
+                            redirect_uri is validated against.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - clientId
+                      - issuedAt
+                      - redirectUris
+                      type: object
+                    type: array
+                  searchTotal:
+                    format: int64
+                    type: integer
+                  semanticCalls:
+                    format: int64
+                    type: integer
+                  semanticFallbacks:
+                    format: int64
+                    type: integer
+                  sessions:
+                    description: |-
+                      Sessions holds the authenticated session set, persisted so logins survive a
+                      pod restart and are shared across replicas via the same informer that loads
+                      this CR. Expired rows are pruned on flush so size stays bounded by active
+                      users (one row per live session). Neither the raw bearer token nor cleartext
+                      identity is stored — only TokenHMAC and an encrypted identity blob — so a
+                      reader with `get mcell` RBAC can neither impersonate nor see who is logged in.
+                      See ADR-047.
+                    items:
+                      description: |-
+                        UserSession is one authenticated session, persisted to system_configuration CR
+                        status so it survives restarts and is visible to every replica. It deliberately
+                        stores NO cleartext identity: a reader with `get mcell` RBAC sees only opaque
+                        hashes/ciphertext, never a login name or SSO ID. TokenHMAC is HMAC-SHA256(token,
+                        serverKey) — the raw token is never stored; validate() hashes the incoming cookie
+                        and compares. IdentityEnc carries the display name + provider ID encrypted under
+                        the server key, so validate() can return real identity after a restart (write-
+                        gating and metering need it) without exposing PII at rest. ExpiresAt is the prune
+                        key (analogous to UserDailyTokens.Day): rows past their expiry are dropped on flush.
+                      properties:
+                        expiresAt:
+                          description: ExpiresAt is the session expiry in RFC3339.
+                            Prune key on flush.
+                          type: string
+                        identityEnc:
+                          description: |-
+                            IdentityEnc is AES-256-GCM(username "\x00" userID) under a key derived from the
+                            server secret, hex-encoded (nonce-prefixed). Opaque at rest; decrypted on
+                            restore to recover the live username/userID. Never contains cleartext PII.
+                          type: string
+                        tokenHmac:
+                          description: TokenHMAC is HMAC-SHA256(token, serverKey),
+                            hex-encoded. Not a usable credential.
+                          type: string
+                        userHash:
+                          description: |-
+                            UserHash is SHA-256(userID)[:16] — raw SSO IDs are never stored. It keys the
+                            row so re-login replaces in place rather than accumulating.
+                          type: string
+                      required:
+                      - expiresAt
+                      - identityEnc
+                      - tokenHmac
+                      - userHash
+                      type: object
+                    type: array
+                  updatedAt:
+                    type: string
+                  userDaily:
+                    description: |-
+                      UserDaily holds per-user token spend for the current UTC day. Rows for
+                      past days are pruned on flush so status size stays bounded by active users.
+                    items:
+                      description: |-
+                        UserDailyTokens records one authenticated user's Gemini Live token spend for a
+                        single UTC calendar day. UserHash is SHA-256(rawUserID)[:16] — raw SSO IDs are
+                        never stored.
+                      properties:
+                        day:
+                          type: string
+                        tokens:
+                          format: int64
+                          type: integer
+                        userHash:
+                          type: string
+                      required:
+                      - day
+                      - tokens
+                      - userHash
+                      type: object
+                    type: array
+                  voiceActive:
+                    format: int64
+                    type: integer
+                  voiceTotal:
+                    format: int64
+                    type: integer
+                required:
+                - embedCacheHits
+                - embedCalls
+                - keywordHits
+                - kwTrigramHits
+                - kwVoiceHits
+                - kwVoiceMisses
+                - memoryCells
+                - searchTotal
+                - semanticCalls
+                - semanticFallbacks
+                - updatedAt
+                - voiceActive
+                - voiceTotal
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

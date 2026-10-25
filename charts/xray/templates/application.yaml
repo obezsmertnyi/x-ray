@@ -1,0 +1,58 @@
+{{- if .Values.application.create }}
+apiVersion: app.k8s.io/v1beta1
+kind: Application
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Release.Name }}
+  annotations:
+    kubernetes-engine.cloud.google.com/icon: >-
+      data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==
+    marketplace.cloud.google.com/deploy-info: '{"partner_id":"","product_id":"xray","partner_name":"X-Ray"}'
+spec:
+  descriptor:
+    type: xray
+    version: {{ .Chart.AppVersion | quote }}
+    description: {{ .Chart.Description }}
+    {{- with .Values.application.keywords }}
+    keywords:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.application.maintainers }}
+    maintainers:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.application.owners }}
+    owners:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.application.links }}
+    links:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.application.notes }}
+    notes: {{ . | quote }}
+    {{- end }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  componentKinds:
+    - group: apps
+      kind: Deployment
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ServiceAccount
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+    {{- if or .Values.httpRoute.enabled .Values.application.includeHttpRoute }}
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    {{- end }}
+  {{- with .Values.application.assemblyPhase }}
+  assemblyPhase: {{ . }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,372 @@
+# xray-graph runs here in SNAPSHOT mode (`serve-snapshots`): one graph + index
+# per map, loaded lazily from a pre-built <label>.graph.gob.gz, routed to per
+# call. That is the mode built for immutable distribution — it uses the static
+# (CGO-free) binary, needs no repository checkout and no C toolchain in the
+# image. Live mode (`serve`) parses source on the node and is a local-workstation
+# mode; it is deliberately not templated here.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/triageagent-dev/xray
+  pullPolicy: IfNotPresent
+  # Defaults to .Chart.AppVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+server:
+  # Container port; also passed as -addr.
+  port: 8085
+  # debug | info | warn | error
+  logLevel: info
+  # Evict a map's in-memory graph after this many idle MINUTES; it reloads from
+  # the snapshot on next use. 0 = never evict. This is the memory dial: the
+  # small routing vector stays resident either way, so eviction costs a reload,
+  # not a routing miss.
+  graphTTLMinutes: 30
+  # How many maps a semantic search (one with no explicit project) consults.
+  routeFanout: 1
+  # Map label backing list_skills / get_skill, one Doc node per SKILL.md.
+  # Empty string disables both tools.
+  skillsMap: skills
+  # The map the `remember` tool writes into — one Memory node per note, created
+  # on first use as <mountPath>/<memoryMap>.graph.gob.gz and flushed after
+  # every note. Empty string disables the tool. Only effective with
+  # server.writable=true: on a read-only directory the server logs that
+  # remember is disabled and registers no such tool.
+  memoryMap: session
+  # false: the snapshot directory is immutable — update_code_graph is refused
+  # and nothing is flushed back. true: the server edits a worked copy and
+  # flushes to the .gob.gz on eviction and shutdown, which needs a writable
+  # volume: snapshots.source=pvc (flushes survive a pod restart) or
+  # snapshots.source=ephemeral (they live exactly as long as the pod).
+  writable: false
+  # Bearer-token auth on every route but /healthz. Off by default, which makes
+  # the network the boundary: any pod that can reach the Service reads every
+  # map (catalog maps are decrypted in memory), and with writable=true writes
+  # notes and worked copies. Turn it on before enabling the ingress, and
+  # wherever other workloads share the cluster:
+  #   openssl rand -hex 32 > token
+  #   kubectl create secret generic xray-graph-auth --from-file=token=token
+  # MCP clients then send "Authorization: Bearer <token>"; the browser UI takes
+  # it once as /ui?token=<token> and keeps it in a cookie.
+  auth:
+    enabled: false
+    # Secret holding the token (16+ characters).
+    secretName: ""
+    secretKey: token
+    # Where it is mounted; the server reads it from $XRAY_AUTH_TOKEN_FILE.
+    mountPath: /var/run/xray-graph/auth-token
+
+# Query embedding. Two ways to get it: an endpoint somewhere in the cluster, or
+# a llama.cpp sidecar in this pod (embeddings.sidecar). Either way the server
+# dials it lazily — it starts and reports healthy without it, and only searches
+# fail — so an external endpoint may come up afterwards.
+#
+# model, dims and maxInputChars are the snapshot FINGERPRINT: every map served
+# must have been built with the same three. dims is the hard check — a mismatch
+# rejects the map at load (skipped, logged) because its vectors live in a
+# different space; a model NAME mismatch only warns, since llama.cpp serves
+# whatever GGUF is loaded regardless of the label. The server truncates to dims
+# CLIENT-side (Matryoshka): llama.cpp always returns nomic's native 768, and
+# 256 is the knee every shipped snapshot was built at.
+embeddings:
+  # Used only when sidecar.enabled is false; the sidecar wins with localhost.
+  endpoint: http://llama-embeddings:8090
+  model: nomic-embed-text
+  dims: 256
+  maxInputChars: 8192
+  # In-pod llama.cpp --embeddings server, rendered as a NATIVE sidecar
+  # (initContainer with restartPolicy: Always): Kubernetes starts it first and
+  # waits for its startupProbe before the server starts, so the first search
+  # never races the model load, and it keeps running for the pod's whole life.
+  # One fingerprint per pod, nothing shared to depend on.
+  sidecar:
+    enabled: false
+    # A llama.cpp server image with the embedding GGUF baked in at modelPath.
+    # This one carries nomic-embed-text v1.5 (Q8_0), the model the snapshots are
+    # built with. To use another model, build your own the same way:
+    #   FROM <a llama.cpp server image>
+    #   COPY <model>.gguf /models/model.gguf
+    image: ghcr.io/triageagent-dev/nomic-embed:v1.18.1-4ccc0ff
+    pullPolicy: IfNotPresent
+    port: 8090
+    # Path of the GGUF inside the image, passed as --model.
+    modelPath: /models/model.gguf
+    # Tuning appended after --host/--port/--embeddings/--model. --ubatch-size 2048
+    # is the real per-request ceiling for pooled embeddings (the whole input
+    # must fit); --ctx-size 16384 / --parallel 8 = 2048 tokens per slot, nomic's
+    # full window, which is where maxInputChars 8192 (~4 chars a token) comes
+    # from.
+    extraArgs:
+      - --ctx-size
+      - "16384"
+      - --ubatch-size
+      - "2048"
+      - --parallel
+      - "8"
+    # startupProbe budget = startupPeriodSeconds * startupFailureThreshold.
+    # 60s: a baked model mmaps in a couple of seconds; the rest is headroom for
+    # a slow image pull on first schedule.
+    startupPeriodSeconds: 5
+    startupFailureThreshold: 12
+    # Idle CPU is ~1m; resident memory is the mmap'd ~140MB GGUF plus llama.cpp
+    # overhead. CPU is the throughput lever, and a guaranteed slice matters:
+    # under node contention a query embed measured 52ms against 4ms on an
+    # uncontended core.
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 1Gi
+    # The model is nomic-embed-text and every shipped snapshot was built at
+    # dims 256, so the chart refuses the sidecar with any other dims. Set this
+    # only when you built the snapshots yourself at another truncation.
+    allowOtherDims: false
+
+snapshots:
+  # image | pvc | ephemeral
+  #
+  #   image      mount a maps image as an OCI IMAGE VOLUME (Kubernetes
+  #              volumes[].image): the kubelet pulls the image and mounts its
+  #              filesystem read-only straight into the pod. No copy, no
+  #              initContainer, no shell or cp in the maps image (FROM scratch
+  #              is fine), no size limit, and the mount is immutable — exactly
+  #              what read-only serving wants. Versioned with the release.
+  #              Requires server.writable=false.
+  #   pvc        mount a PersistentVolumeClaim. Use this when server.writable=true
+  #              and the worked copies and notes must outlive the pod, or when
+  #              maps are produced by something else in the cluster. Can be
+  #              seeded from OCI images on first start — see seed below.
+  #   ephemeral  an emptyDir seeded from the maps image (snapshots.image) at
+  #              EVERY pod start: the image is mounted read-only beside the
+  #              emptyDir and the seed initContainer copies the *.graph.gob.gz
+  #              across. Pick this for server.writable=true without a PVC: the
+  #              maps stay versioned with the image as under `image`, and
+  #              update_code_graph gets a worked copy and `remember` a notes
+  #              map — both of which are LOST with the pod (restart, reschedule,
+  #              rollout), because the volume starts empty every time and is
+  #              refilled from the image. A session notes map that lives as
+  #              long as the pod, not a store; if the notes must survive, use
+  #              pvc. Needs the busybox image under seed.image for the copy.
+  #
+  # Every OCI mount here is an image volume — the maps image under image and
+  # ephemeral, the seed images under pvc — and all of them need Kubernetes
+  # >= 1.33 (ImageVolume is beta and on by default from 1.33, GA later); the
+  # chart's kubeVersion refuses older clusters. On a cluster with the feature
+  # gate switched off the pod stays Pending with an image-volume error. There
+  # is no fallback: image volumes are the only way this chart gets maps into a
+  # pod.
+  source: image
+
+  # The directory the server serves *.graph.gob.gz from. It is globbed at
+  # startup — the server exits if it finds nothing — and WATCHED afterwards
+  # (inotify): a snapshot created or rewritten here is registered after a short
+  # debounce and a removed one is deregistered, with no restart. The one
+  # exception is an NFS-backed volume, where inotify does not fire and a
+  # restart is still needed. With server.writable=true the worked copy and the
+  # `remember` notes flush back into this same directory.
+  mountPath: /maps
+
+  # The maps image. With source=image it is mounted directly as the maps
+  # volume; with source=ephemeral it is mounted read-only beside the emptyDir
+  # and seeded from at every pod start. Not used with source=pvc, where the
+  # maps come from the claim (or from seed.images).
+  image:
+    repository: ghcr.io/triageagent-dev/xray-graph-maps
+    tag: latest
+    # Pull policy of the image VOLUME (Always | IfNotPresent | Never). Note the
+    # volume is resolved when the pod is created, so a moved tag is only picked
+    # up on pod recreation — pin a tag per release rather than relying on
+    # Always.
+    pullPolicy: IfNotPresent
+    # Where the snapshots live inside that image. The kubelet mounts the
+    # image's ROOT filesystem, so with source=image this becomes the mount's
+    # subPath and selects the directory holding the *.graph.gob.gz. With
+    # source=ephemeral the seed walks the whole image, so it is informational
+    # there. Build the image with
+    #   FROM scratch
+    #   COPY *.graph.gob.gz /maps/
+    path: /maps
+
+  # Encrypted snapshots. A snapshot is gzip over gob, so anyone who can pull the
+  # maps image can `strings` every node's text — for a catalog map that is
+  # people's names and roles. Maps built with `-snapshot-recipient <age1…>` are
+  # age-encrypted; the file name and the image layout do not change, the seed
+  # initContainer copies bytes and needs no key, and only the server needs the
+  # identity to open them. Generate one with `xray graph keygen -out
+  # snapshot.key` (it prints the recipient), then
+  #   kubectl create secret generic xray-graph-snapshot-key --from-file=identity=snapshot.key
+  # A directory may mix encrypted and plaintext maps; an encrypted map found
+  # with no key is skipped with a warning, the rest still serve. The key
+  # reads, the recipient writes: with server.writable=true a map that arrived
+  # encrypted is re-encrypted on every flush (never downgraded), while
+  # plaintext maps and the `remember` notes map stay plaintext. To encrypt
+  # those as well, set XRAY_SNAPSHOT_RECIPIENT (extraEnv) to the identity's
+  # age1… public key — then every flush is encrypted, which migrates a volume.
+  encryption:
+    enabled: false
+    # Secret holding the age identity file (the AGE-SECRET-KEY-1… line, comments allowed).
+    secretName: ""
+    secretKey: identity
+    # Where it is mounted; the server reads it from $XRAY_SNAPSHOT_KEY.
+    mountPath: /var/run/xray-graph/snapshot.key
+
+  pvc:
+    # Name of an existing claim. Leave empty to have the chart create one.
+    existingClaim: ""
+    size: 5Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+  # source=ephemeral only: the emptyDir the maps are copied into. Both fields
+  # are omitted from the volume when empty.
+  ephemeral:
+    # Cap on the volume (e.g. 2Gi). The kubelet EVICTS the pod when it fills,
+    # so budget for the seeded maps plus the worked copies and notes flushed
+    # beside them, not for the maps alone. Empty = no limit (the node's
+    # ephemeral-storage accounting still applies).
+    sizeLimit: ""
+    # "" backs the volume with node disk; Memory makes it a tmpfs, which is
+    # faster but counts against the container's memory limit — a large maps
+    # image then competes with the loaded graphs for the same bytes.
+    medium: ""
+
+  # Seed a fresh volume. Each listed OCI image is mounted as an image volume
+  # and an initContainer copies every *.graph.gob.gz it finds into the volume
+  # at pod start, ONLY for files the volume does not already hold: a redeploy
+  # must not erase a worked copy edited through update_code_graph or the notes
+  # `remember` flushed there. Requires snapshots.source=pvc or ephemeral —
+  # with source=image the image IS the volume and there is nothing to seed.
+  #
+  # With source=ephemeral the maps image (snapshots.image) is seeded whether or
+  # not this is enabled — the emptyDir is empty at every start and has to be
+  # filled from somewhere. Enabling seed there ADDS the images listed below,
+  # so an empty list is refused. overwrite is moot on a fresh emptyDir (nothing
+  # is ever already there) and harmless.
+  #
+  # The seed images are built the same way as the maps image (FROM scratch,
+  # COPY *.graph.gob.gz /maps/), so a large code graph seeds as easily as a
+  # small catalog. Once the volume holds a map, the watcher picks up anything
+  # copied in later, seed or not.
+  seed:
+    enabled: false
+    # OCI images (or artifacts) holding *.graph.gob.gz.
+    images: []
+    #  - reference: ghcr.io/you/xray-maps:2026-09-15
+    #    pullPolicy: IfNotPresent   # Always | IfNotPresent | Never
+    #    path: /maps                # directory inside the image; the copy
+    #                               # searches the whole image, so this is
+    #                               # informational and may be omitted
+    # true replaces files already on the volume — and loses every worked copy
+    # and remembered note held in them. Leave false unless the seed is the
+    # source of truth.
+    overwrite: false
+    # The initContainer needs a shell, find and cp; the server image is
+    # distroless and has none.
+    image:
+      repository: busybox
+      tag: stable
+      pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8085
+  annotations: {}
+
+# Every endpoint — /mcp, /ui, /search, /graph, /node, /status, /metrics — serves
+# the whole graph, and with server.writable=true /mcp also writes. Without
+# server.auth.enabled nobody is asked for a credential, so an ingress publishes
+# all of it: enable auth (or put an authenticating proxy in front) first.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: xray-graph.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+# A loaded map holds its whole graph, vector cache and HNSW in memory, so the
+# working set scales with how many maps are resident at once — tune with
+# server.graphTTLMinutes and resources.limits.memory together.
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 20
+livenessProbeEnabled: true
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 10
+readinessProbeEnabled: true
+
+# The server exits at startup if the snapshot directory holds no
+# *.graph.gob.gz, so a missing or empty volume surfaces as CrashLoopBackOff
+# rather than an empty server. The startup probe only covers load time.
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  failureThreshold: 30
+  periodSeconds: 5
+startupProbeEnabled: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+# Extra flags appended to the container command, e.g. ["-log-level=debug"].
+extraArgs: []
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []

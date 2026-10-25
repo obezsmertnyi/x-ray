@@ -1,0 +1,12 @@
+defaultBaseImage: cgr.dev/chainguard/static:latest
+builds:
+- id: xray
+  main: ./cmd/xray
+  env:
+  - CGO_ENABLED=0
+  ldflags:
+  - -s -w
+  - -X github.com/triageagent-dev/x-ray/v2/internal/version.Version={{.Env.VERSION}}
+  - -X github.com/triageagent-dev/x-ray/v2/internal/version.GitCommit={{.Env.GIT_COMMIT}}
+  - -X github.com/triageagent-dev/x-ray/v2/internal/version.BuildDate={{.Env.BUILD_DATE}}
+  kodata: false

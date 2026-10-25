@@ -1,0 +1,1227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>xray-memory Extraction</title>
+<!-- Same favicon as the graph UI (index.html), inlined for the same reason. -->
+<link rel="icon" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAABTVBMVEUAAAAMDAwKCg8KCg8KCg8KCg8KChAJCQ8JCQ8JCQ8KCg8KCg8MDAwKChAKCg8KCg8KChAKCg8NDQ0JCRAKCg8KCg8RMjIiloootaMRMjEpJD53Y7OPd9UpIz0s0Lst1L8sz7sRMTGkiPWni/qjiPQoIzwilYl2Y7IntaUotqSPd9ePeNYnopaAbsJ2YrEt1MA+wcMbOEAnLUKPkeenjPonIjslo5U4xb5FxctLucgdN0ElLkGAl9+Pmu6Vj+2CbsQWNzpCvMJOwc9TtcwfNkIjL0B5nNuGnuqJlOYtLUkYNjtLuMVWvNNgrctVZXRVY3J0n9F+o+aBmOIrLkgbNj1ZsMaIl6mKlaaIl6p6mtUoLkNUZXJYYnRTZHFYY3VZr8WHl6mJlqp6m9ZWZHVWYnN0n9IlpJaVju2DbcU+wsOPkugno5eBbsMilIgQMDCxyqafAAAAFXRSTlMAFoTP9M6DVfJU/vEVgtDzgfAUUs1Xa/zlAAABWklEQVQ4y52T51PCQBDFlxIMzaCwAgIGDBAr2HvvvaKx967w/380d/HCzeDFGd+X3Oz75bJ3LwsA4HJ7vNggr+RzAVWTjALJfuoHUKiASbhkdFAwBG50VBia6bMtnogn6+X2VDqVoSsJFOp3qKqazdl+p6Zp+QLtE2glrhIVGZDSiHS6toAuCnQzoIcCvRxQpEAfA/opUOKAZNb0ywODlj80PEJ6GOUAzBUTY+MTk1NkPT0zOzefLlk+A4gWFpeWVxBX19Y3NutVDsCt7Z3dvf2Dw6Nj/B3AysmpYZydX6AIwEvD1BWKgWsC3IiByu2dYdw/CD9Bmnx8ehY26XhMM+4X7qJe31jcPwCNu/zOrvpDs+NGPu5Ptu3Xf+OuMkDn45btuLM1BmTydtxB8LC4q7X62Qo6i1sCn/NvH/ljcFpaAfxOoxclw+kPCt+PWuMdCseURleJRcz94Ru6hm6HABrBCQAAAABJRU5ErkJggg==" />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' x2='1'><stop offset='0' stop-color='%232dd4bf'/><stop offset='1' stop-color='%23a78bfa'/></linearGradient></defs><rect width='32' height='32' rx='7' fill='%230a0a0f'/><path d='M8.5 8.5L23.5 23.5M23.5 8.5L8.5 23.5' stroke='url(%23g)' stroke-width='2.4' stroke-linecap='round'/><circle cx='8.5' cy='8.5' r='3.4' fill='%232dd4bf'/><circle cx='8.5' cy='23.5' r='3.4' fill='%232dd4bf'/><circle cx='23.5' cy='8.5' r='3.4' fill='%23a78bfa'/><circle cx='23.5' cy='23.5' r='3.4' fill='%23a78bfa'/><circle cx='16' cy='16' r='2.6' fill='%238a95a6'/></svg>" />
+<!--
+  The extraction layer, explained. Lives beside the graph UI (index.html) and is
+  published as an Artifact; the graph UI's About button links to it. Same design
+  system as the xray-recall Pipeline sheet. Anthropic bone white, Book cloth and
+  Manila accents, Newsreader / Archivo / IBM Plex Mono, so the two read as one
+  set of documents.
+-->
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500;6..72,600&display=swap">
+<style>
+  /* Padding must not push a panel past the text spine. */
+  *, *::before, *::after { box-sizing: border-box; }
+
+  /* Anthropic palette: bone white ground, white objects, Book cloth + Manila accents */
+  :root {
+    color-scheme: light;          /* single-theme page: bone white in every viewer */
+    --paper:      #F0EEE6;  /* Bone white: the background, everywhere */
+    --cloud:      #F0EEE6;  /* cards sit flush on bone; a hairline defines them */
+    --surface:    #FFFFFF;  /* white: only for objects drawn on the bone */
+    --surface-2:  #E4E0D4;  /* bone, deeper: code chips */
+    --ink:        #191919;  /* Slate */
+    --ink-2:      #3D3B36;
+    --muted:      #736F65;
+    --rule:       #D9D5C8;
+    --rule-strong:#B3AE9E;
+    --cold:       #9C4A26;  /* Book cloth, darkened for type and strokes */
+    --cold-soft:  #EBDBBC;  /* Manila */
+    --hot:        #3F6478;
+    --hot-soft:   #D3DEE3;
+
+    --measure: 100%;
+
+    --sans:  "Archivo", ui-sans-serif, system-ui, sans-serif;
+    --mono:  "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --serif: "Newsreader", Georgia, "Times New Roman", serif;
+  }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1360px; margin: 0 auto; padding: 0 32px 110px; }
+  .prose.qn, pre.thesis.standfirst, ul.tight, h3.top.shead, footer { max-width: var(--measure); }
+  p { margin: 0 0 1.05em; color: var(--ink-2); }
+
+  /* Justified running text; hyphenation is not optional at this measure. */
+  p, ul.tight li.thesis, figcaption.standfirst {
+    text-align: justify;
+    -webkit-hyphens: auto; hyphens: auto;
+  }
+  .eyebrow { text-align: left; }
+  a { color: var(--cold); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--cold); outline-offset: 3px; border-radius: 3px; }
+  code.mono { font-family: var(--mono); font-size: .82em; }
+  code {
+    color: var(--ink); background: var(--surface-2); padding: .12em .36em; border-radius: 4px;
+    -webkit-hyphens: none; hyphens: none; white-space: nowrap;
+  }
+  strong { color: var(--ink); font-weight: 600; }
+  em { font-style: italic; }
+
+  /* ---- masthead ---- */
+  .top { border-top: 1px solid var(--rule-strong); padding-top: 18px; margin-top: 52px; }
+  .eyebrow {
+    font-family: var(--sans); font-size: 11px; font-weight: 500; letter-spacing: .15em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 28px;
+    display: flex; flex-wrap: wrap; gap: 6px 20px;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 400; font-size: clamp(40px, 6.6vw, 70px);
+    line-height: 1.03; letter-spacing: -.022em; margin: 0 0 22px;
+    text-wrap: balance; color: var(--ink); max-width: 18ch;
+  }
+  .standfirst {
+    font-family: var(--serif); font-weight: 300; font-size: clamp(19px, 2.5vw, 23px);
+    line-height: 1.52; color: var(--ink-2); margin: 0 0 34px;
+  }
+  .standfirst em { color: var(--ink); }
+
+  /* ---- section rhythm ---- */
+  section { margin-top: 76px; }
+  .shead {
+    display: grid; grid-template-columns: auto 1fr; column-gap: 18px; align-items: baseline;
+    border-bottom: 1px solid var(--rule-strong); padding-bottom: 12px; margin-bottom: 30px;
+  }
+  .ord {
+    font-family: var(--sans); font-size: 12px; font-weight: 600;
+    color: var(--cold); letter-spacing: .08em; grid-column: 1; padding-top: 6px;
+  }
+  .shead h2 {
+    font-family: var(--serif); font-weight: 400; font-size: clamp(26px, 3.3vw, 34px);
+    letter-spacing: -.016em; margin: 0; line-height: 1.14; grid-column: 2; color: var(--ink);
+  }
+  .owner { font-family: var(--mono); font-size: 11px; color: var(--muted); grid-column: 2; text-align: right; line-height: 1.6; margin-top: 6px; }
+  h3 { font-family: var(--sans); font-weight: 600; font-size: 14px; letter-spacing: .005em; margin: 32px 0 9px; color: var(--ink); }
+
+  /* ---- figures ---- */
+  .fig { margin: 38px 0 0; }
+  .figbox {
+    background: var(--cloud); border: 1px solid var(--rule); border-radius: 12px;
+    padding: 22px 20px; overflow-x: auto;
+  }
+  .fig svg { display: block; width: 100%; min-width: 700px; height: auto; }
+  figcaption {
+    font-family: var(--sans); font-size: 12.5px; line-height: 1.62; color: var(--muted);
+    margin-top: 12px;
+  }
+  figcaption b { color: var(--ink-2); font-weight: 600; }
+
+  /* SVG element classes */
+  .d-box   { fill: var(--surface);   stroke: var(--rule-strong); stroke-width: 1; }
+  .d-cold  { fill: var(--cold-soft); stroke: var(--cold);        stroke-width: 1.1; }
+  .d-hot   { fill: var(--hot-soft);  stroke: var(--hot);         stroke-width: 1.1; }
+  .d-fill2 { fill: var(--surface-2); stroke: var(--rule-strong); stroke-width: 1; }
+  .d-ghost { fill: var(--paper);     stroke: var(--rule-strong); stroke-width: 1; stroke-dasharray: 4 3; }
+  .d-t  { fill: var(--ink);   font: 500 11.5px var(--sans); }
+  .d-s  { fill: var(--muted); font: 400 9.5px var(--mono); }
+  .d-m  { fill: var(--ink-2); font: 400 10px var(--mono); }
+  .d-eb { font: 600 10px var(--sans); letter-spacing: .13em; }
+  .d-eb.cold { fill: var(--cold); }
+  .d-eb.hot  { fill: var(--hot); }
+  .d-ln  { fill: none; stroke: var(--rule-strong); stroke-width: 1.3; }
+  .d-lnc { fill: none; stroke: var(--cold);        stroke-width: 1.4; }
+  .d-lnh { fill: none; stroke: var(--hot);         stroke-width: 1.4; }
+  .d-dash { stroke-dasharray: 4 3; }
+  #ar-cold path { fill: var(--cold); }
+  #ar-hot  path { fill: var(--hot); }
+  #ar-mute path { fill: var(--rule-strong); }
+
+  /* ---- callout ---- */
+  .thesis {
+    margin: 38px 0 0; padding: 24px 28px; background: var(--surface);
+    border: 1px solid var(--rule); border-left: 3px solid var(--cold); border-radius: 12px;
+    font-family: var(--serif); font-weight: 300; font-size: 21px; line-height: 1.48;
+    color: var(--ink);
+  }
+  .thesis .hi { color: var(--cold); font-style: italic; }
+
+  /* ---- data ---- */
+  .tablewrap { overflow-x: auto; margin-top: 20px; }
+  table { border-collapse: collapse; width: 100%; font-family: var(--sans); font-size: 13px; min-width: 300px; }
+  caption {
+    caption-side: bottom; text-align: left; font-family: var(--sans); font-size: 12px;
+    color: var(--muted); padding-top: 11px; line-height: 1.55;
+  }
+  th {
+    text-align: left; font-family: var(--sans); font-size: 10.5px; font-weight: 600;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+    padding: 0 16px 8px 0; border-bottom: 1px solid var(--rule-strong); white-space: nowrap;
+  }
+  td { padding: 9px 16px 9px 0; border-bottom: 1px solid var(--rule); color: var(--ink-2); vertical-align: top; }
+  td:first-child { color: var(--ink); font-weight: 500; }
+  .num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* A .num cell is right-aligned, so zeroing its right padding only works when it
+     is the last column and the number sits flush to the table edge. In a middle
+     column that same rule butted the number straight into the next cell ("54.0same
+     reader class"), header included. Middle num columns get a wider gutter instead,
+     because a right-aligned number needs more separation from left-aligned text. */
+  th.num:not(:last-child), td.num:not(:last-child) { padding-right: 22px; }
+  th.num:last-child, td.num:last-child { padding-right: 0; }
+  tbody tr:hover td { background: var(--surface); }
+  .tag { font-family: var(--mono); font-size: 10.5px; padding: 2px 7px; border-radius: 4px; border: 1px solid; white-space: nowrap; }
+  .tag.on  { color: var(--cold); border-color: var(--cold); }
+  .tag.off { color: var(--muted); border-color: var(--rule-strong); }
+
+  /* ---- qn anatomy ---- */
+  .qn {
+    margin: 30px 0 0; padding: 24px 26px 18px; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 12px; overflow-x: auto;
+  }
+  .qn-line { font-family: var(--mono); font-size: clamp(13px, 1.7vw, 16px); white-space: nowrap; }
+  .qn-line .seg-repo { color: var(--cold); }
+  .qn-line .seg-sep  { color: var(--muted); }
+  .qn-line .seg-path { color: var(--ink); }
+  .qn-line .seg-sym  { color: var(--hot); }
+  .qn-keys { display: flex; gap: 22px; margin-top: 14px; flex-wrap: wrap; }
+  .qn-keys div { font-family: var(--sans); font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .qn-keys b { font-weight: 600; }
+  .qn-keys .k-repo b { color: var(--cold); }
+  .qn-keys .k-path b { color: var(--ink-2); }
+  .qn-keys .k-sym  b { color: var(--hot); }
+
+  pre {
+    margin: 22px 0 0; padding: 20px 22px; background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 12px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px;
+    line-height: 1.68; color: var(--ink-2);
+  }
+  pre .cm { color: var(--muted); }
+  pre .hl { color: var(--hot); }
+  pre .hlc { color: var(--cold); }
+
+  .split { display: grid; gap: 38px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 860px) { .split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+
+  ul.tight { margin: 0 0 1.05em; padding-left: 20px; }
+  ul.tight li { margin-bottom: .55em; color: var(--ink-2); }
+  ul.tight li::marker { color: var(--cold); }
+
+  footer {
+    margin-top: 88px; padding-top: 18px; border-top: 1px solid var(--rule-strong);
+    font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.9;
+  }
+  /* ---- rail: the sheet's own table of contents ---- */
+  /* One column until there is genuinely room for a second: below ~1000px the
+     rail would eat the measure the justified text needs. */
+  .shell { display: grid; grid-template-columns: 1fr; }
+  .sheet { min-width: 0; }   /* a grid child must be allowed to shrink, or the
+                                wide tables push the whole sheet past the rail */
+  .rail { padding-block: 18px 6px; }
+  @media (min-width: 1000px) {
+    /* Docs and code keep the left column, the measure the prose was set for.
+       The section menu is a lookup surface, not reading matter, so it sits out
+       of the reading path on the right. */
+    .shell { grid-template-columns: 232px minmax(0, 1fr); column-gap: 56px; align-items: start; }
+    .rail { position: sticky; top: 0; align-self: start; padding-block: 28px 20px; background: var(--paper); }
+  }
+  .rail nav { margin-top: 22px; }
+  .rail ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+  .rail a[href^="#"] {
+    display: block; padding: 9px 12px; border-radius: 8px; text-decoration: none;
+    font-family: var(--sans); font-size: 15px; font-weight: 500; line-height: 1.32;
+    color: var(--muted);
+  }
+  .rail a[href^="#"]:hover { background: var(--surface); color: var(--ink-2); }
+  .rail a[href^="#"].current { background: var(--surface); color: var(--ink); box-shadow: inset 2px 0 0 var(--cold); }
+  section[id] { scroll-margin-top: 22px; }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+
+  /* ---- wordmark + return, top of the sheet ---- */
+  .brand { display: grid; gap: 12px; justify-items: start; padding-block: 0 2px; }
+  .mark {
+    font-family: var(--serif); font-weight: 500; font-size: 30px; line-height: 1;
+    letter-spacing: -.03em; color: var(--ink);
+  }
+
+  /* ---- return to the graph ---- */
+  /* Sticky, not fixed: a fixed chip would sit on top of the masthead at the
+     top of the page, where the reader has not scrolled anywhere yet. It needs
+     an opaque ground of its own, or the justified text scrolls through it. */
+  .back {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: .14em;
+    text-transform: uppercase; text-decoration: none; color: var(--cold);
+    border: 1px solid var(--rule-strong); border-radius: 999px; padding: 6px 14px;
+    background: var(--surface); transition: background .15s, border-color .15s;
+  }
+  .back:hover { background: var(--cold-soft); border-color: var(--cold); }
+  .back .arrow { font-size: 13px; line-height: 1; }
+
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap" lang="en">
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <a class="back" href="/ui"><span class="arrow" aria-hidden="true">&#8592;</span> Back to xray</a>
+    </div>
+    <nav aria-label="Sections">
+      <ol>
+      <li><a href="#s01"><span>What Tree-sitter does</span></a></li>
+      <li><a href="#s02"><span>From files to a graph</span></a></li>
+      <li><a href="#s03"><span>What gets embedded</span></a></li>
+      <li><a href="#s04"><span>The .gob.gz snapshot</span></a></li>
+      <li><a href="#s05"><span>Serving many maps at once</span></a></li>
+      <li><a href="#s06"><span>How a search runs</span></a></li>
+      <li><a href="#s07"><span>Retrieval: from a pointer to an answer</span></a></li>
+      <li><a href="#s08"><span>Keeping it current</span></a></li>
+      <li><a href="#s09"><span>Watching it work</span></a></li>
+      <li><a href="#s10"><span>What a query costs</span></a></li>
+      <li><a href="#s11"><span>How this compares</span></a></li>
+      </ol>
+    </nav>
+  </aside>
+
+  <div class="sheet">
+
+  <header class="top">
+    <p class="eyebrow"><span>xray-memory</span><span>derived memory</span><span>one binary, two modes</span></p>
+    <h1>Parse, embed, snapshot, serve</h1>
+    <p class="standfirst">
+      xray-memory serves <em>derived</em> memory: a semantic graph reconstructed from repositories,
+      documentation and Kubernetes manifests. Nothing in it is authored, so anything in it can be thrown
+      away and rebuilt. This page is how that rebuild works, end to end, what the parser reads, what the
+      embedder is given, what a <code>.gob.gz</code> actually holds, and what happens when you type a query.
+    </p>
+  </header>
+
+  <p class="thesis">
+    Two passes, and they are not the same size. Building a map embeds <span class="hi">every node once</span>;
+    answering a query embeds <span class="hi">the query, once</span>. The snapshot between them is what keeps
+    those apart.
+  </p>
+
+  <section id="s01">
+    <div class="shead">
+      <span class="ord">01</span>
+      <h2>What Tree-sitter does</h2>
+      <span class="owner">internal/parser/lang.go<br>walk.go · tags.go</span>
+    </div>
+    <div class="prose">
+      <p>
+        Tree-sitter is a parser generator. Each language ships a grammar; the grammar is compiled into the
+        xray-memory binary, so there is nothing to install alongside it and no language server to run. Given a
+        file, it produces a full syntax tree, not a regex guess at what a function looks like, but the
+        language's own structure, with exact line ranges for every declaration.
+      </p>
+      <p>
+        Two ways of reading that tree are in use here.
+      </p>
+      <ul class="tight">
+        <li>
+          <strong>The rich extractor (Go).</strong> A hand-written walk over the tree in two passes: first the
+          file's scope, its imports and every name it declares, then the nodes and edges themselves. It
+          carries the evidence each call site has (the package an identifier came from, a receiver's declared
+          type, the root of a chain) into the edge, for the linker to spend later.
+        </li>
+        <li>
+          <strong>The generic extractor (ten other languages).</strong> Most grammars ship a
+          <code>tags.scm</code> query, a pattern that captures definitions and references. Those queries are
+          vendored into the binary and run as-is: whatever they capture as a definition becomes a node,
+          whatever they capture as a call becomes an edge from the definition containing that line. No Go code
+          is written per language.
+        </li>
+      </ul>
+      <p>
+        Adding a language is therefore two steps: register its grammar and file extensions in
+        <code>parser/lang.go</code>, and drop its <code>tags.scm</code> into <code>parser/queries/</code>.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          <code>.ts</code> and <code>.tsx</code> are separate grammars sharing one tags query and one language
+          label, so both land in the same search space. An unknown extension returns nothing and no error,
+          which is what lets the walk skip-scan a tree cheaply.
+        </caption>
+        <thead><tr><th>Extractor</th><th>Applies to</th><th>Node kinds</th><th>Edge kinds</th></tr></thead>
+        <tbody>
+          <tr><td>Rich, hand-written</td><td class="mono">.go</td><td class="mono">File · Func · Test · Class · Type</td><td class="mono">calls · imports · inherits · contains</td></tr>
+          <tr><td>Generic tags</td><td class="mono">.py .js .jsx .mjs .cjs .ts .tsx .java .rs .rb .c .h .cc .cpp .cxx .hpp .hh .php .cs</td><td class="mono">File · Func · Class</td><td class="mono">calls (Java, TypeScript, Python: with receiver types and import bindings) · contains · references (Java: annotations with arguments, declared types) · imports (Java, TypeScript, Python)</td></tr>
+          <tr><td>Markdown chunker</td><td class="mono">.md</td><td class="mono">Doc · Section</td><td class="mono">contains</td></tr>
+          <tr><td>Manifest line scan</td><td class="mono">.yaml .yml</td><td class="mono">Manifest</td><td class="mono">references</td></tr>
+          <tr><td>Compose / .env line scan</td><td class="mono">compose*.yaml .env .env.*</td><td class="mono">Deployment · Config</td><td class="mono">references</td></tr>
+          <tr><td>Application config line scan</td><td class="mono">application*.yml|properties bootstrap*.yml tsconfig*.json jsconfig.json</td><td class="mono">Config</td><td class="mono">—</td></tr>
+          <tr><td>Dockerfile scan</td><td class="mono">Dockerfile Dockerfile.* *.Dockerfile</td><td class="mono">Image</td><td class="mono">references (COPY sources)</td></tr>
+          <tr><td>SQL statement scan</td><td class="mono">.sql</td><td class="mono">Table · View · Routine · Trigger · Sequence</td><td class="mono">references</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <h3>What is deliberately not Tree-sitter parsed</h3>
+      <p>
+        Markdown structure is heading-based, so a chunker is enough: one <code>Doc</code> node per file, one
+        <code>Section</code> per <code>##</code> heading. Kubernetes YAML gets a tolerant line scan instead of a
+        strict parse, because a Helm template holding <code>{{ .Values.image }}</code> is not valid YAML and a
+        real parser would fail on exactly the files most worth indexing. It reads files only, no cluster is
+        contacted.
+      </p>
+    </div>
+  </section>
+
+  <section id="s02">
+    <div class="shead">
+      <span class="ord">02</span>
+      <h2>From files to a graph</h2>
+      <span class="owner">internal/engine/parse.go<br>internal/graph/link.go</span>
+    </div>
+    <div class="prose">
+      <p>
+        The walk skips what isn't yours, <code>.git</code>, <code>node_modules</code>, <code>vendor</code>,
+        <code>dist</code>, <code>build</code>, <code>.venv</code>, <code>__pycache__</code>, plus minified
+        bundles, which parse as one enormous line. It will not descend a symlinked directory unless told to:
+        otherwise the shape of every future build depends on wherever a repo happens to point.
+      </p>
+      <p>
+        Extraction gives you symbols and <em>unresolved</em> calls: a call site names a function, it does not
+        name a definition. The linker turns one into the other using five rules, each looking only where its
+        own evidence points. Go's builtins (<code>append</code>, <code>len</code>, <code>make</code>) are
+        dropped first, they are not call-graph edges.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          Repo-wide name matching used to exist as a last resort. It linked a test calling the Kubernetes
+          client's promoted <code>Update()</code> to <code>engine.Indexer.Update</code>, the only
+          <code>Update</code> declared anywhere, and pulled an unrelated package into a blast radius.
+          Ambiguity now yields no edge, which is why a graph of this repo has no edge pointing at the standard
+          library.
+        </caption>
+        <thead><tr><th>Rule</th><th>Evidence at the call site</th><th>Where it may look</th><th>No match</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">pkg</td><td><code>pkg.Func()</code>, an import name</td><td>that import's package, only</td><td><span class="tag off">no edge</span></td></tr>
+          <tr><td class="mono">chain</td><td>a chained receiver</td><td>step by step, through declared types</td><td><span class="tag off">no edge</span></td></tr>
+          <tr><td class="mono">recvPkg</td><td>the receiver's package is known</td><td>that package, only</td><td><span class="tag off">no edge</span></td></tr>
+          <tr><td class="mono">recvType</td><td>receiver of a package-local type</td><td>own package, exact type + method</td><td><span class="tag off">no edge</span></td></tr>
+          <tr><td class="mono">bare</td><td><code>foo()</code>, no qualifier</td><td>own package, only if unambiguous</td><td><span class="tag off">no edge</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <figure class="fig">
+      <div class="figbox">
+        <svg viewBox="0 0 1000 250" role="img" aria-label="Two chained calls from the same struct. e.ixr.Graph() follows the field ixr, declared as a pointer to Indexer in package internal/engine, to the method Graph declared there, producing a calls edge. e.mu.RLock() follows the field mu, declared as sync.RWMutex, into a package outside the repo, where the walk ends with no edge.">
+          <defs>
+            <marker id="ar-cold" viewBox="0 0 10 10" refX="9.2" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z"/></marker>
+            <marker id="ar-mute" viewBox="0 0 10 10" refX="9.2" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z"/></marker>
+          </defs>
+          <text class="d-eb cold" x="16" y="24">ONE STRUCT &#183; TWO CHAINS &#183; ONE EDGE</text>
+
+          <rect class="d-cold" x="16" y="42" width="212" height="56" rx="3"/>
+          <text class="d-t" x="34" y="66">e.ixr.Graph()</text>
+          <text class="d-s" x="34" y="84">root: e *projectEntry</text>
+          <line class="d-lnc" x1="232" y1="70" x2="268" y2="70" marker-end="url(#ar-cold)"/>
+          <text class="d-s" x="250" y="60" text-anchor="middle">field</text>
+          <rect class="d-box" x="272" y="42" width="230" height="56" rx="3"/>
+          <text class="d-t" x="290" y="66">ixr *Indexer</text>
+          <text class="d-s" x="290" y="84">declared in internal/engine</text>
+          <line class="d-lnc" x1="506" y1="70" x2="542" y2="70" marker-end="url(#ar-cold)"/>
+          <text class="d-s" x="524" y="60" text-anchor="middle">method</text>
+          <rect class="d-box" x="546" y="42" width="250" height="56" rx="3"/>
+          <text class="d-t" x="564" y="66">Indexer.Graph()</text>
+          <text class="d-s" x="564" y="84">indexer.go:65 &#183; same package</text>
+          <line class="d-lnc" x1="800" y1="70" x2="836" y2="70" marker-end="url(#ar-cold)"/>
+          <text class="d-m" x="842" y="66">calls edge</text>
+          <text class="d-s" x="842" y="84">rule: chain</text>
+
+          <rect class="d-ghost" x="16" y="140" width="212" height="56" rx="3"/>
+          <text class="d-t" x="34" y="164">e.mu.RLock()</text>
+          <text class="d-s" x="34" y="182">root: e *projectEntry</text>
+          <line class="d-ln d-dash" x1="232" y1="168" x2="268" y2="168" marker-end="url(#ar-mute)"/>
+          <text class="d-s" x="250" y="158" text-anchor="middle">field</text>
+          <rect class="d-ghost" x="272" y="140" width="230" height="56" rx="3"/>
+          <text class="d-t" x="290" y="164">mu sync.RWMutex</text>
+          <text class="d-s" x="290" y="182">declared in package sync</text>
+          <line class="d-ln d-dash" x1="506" y1="168" x2="542" y2="168" marker-end="url(#ar-mute)"/>
+          <text class="d-s" x="524" y="158" text-anchor="middle">step</text>
+          <rect class="d-ghost" x="546" y="140" width="250" height="56" rx="3"/>
+          <text class="d-t" x="564" y="164">outside the repo</text>
+          <text class="d-s" x="564" y="182">nothing there is a node</text>
+          <line class="d-ln d-dash" x1="800" y1="168" x2="836" y2="168" marker-end="url(#ar-mute)"/>
+          <text class="d-m" x="842" y="164">no edge</text>
+          <text class="d-s" x="842" y="182">walk ends</text>
+          <text class="d-s" x="16" y="228">each step must land on exactly one declaration in the package the previous step named</text>
+        </svg>
+      </div>
+      <figcaption>
+        <b>Following a chain.</b> A field step reads the struct's declared fields, a <code>method()</code> step
+        reads that method's declared result. The moment a step lands in a package the repo does not contain,
+        the walk ends as external.
+      </figcaption>
+    </figure>
+
+    <div class="prose">
+      <h3>Every node gets one name</h3>
+      <p>
+        Nodes are keyed so that many repositories can share one index without colliding. That key, the
+        <em>qualified name</em>, or <code>qn</code>, is what every tool takes and returns.
+      </p>
+    </div>
+
+    <div class="qn">
+      <div class="qn-line"><span class="seg-repo">xray-memory</span><span class="seg-sep">//</span><span class="seg-path">internal/engine/indexer.go</span><span class="seg-sep">::</span><span class="seg-sym">Indexer.Graph</span></div>
+      <div class="qn-keys">
+        <div class="k-repo"><b>map label</b> &#183; many repos, one index, no collision</div>
+        <div class="k-path"><b>repo-relative path</b></div>
+        <div class="k-sym"><b>symbol</b> &#183; parent-qualified</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="s03">
+    <div class="shead">
+      <span class="ord">03</span>
+      <h2>What gets embedded</h2>
+      <span class="owner">internal/index/index.go<br>nodeText</span>
+    </div>
+    <div class="prose">
+      <p>
+        An embedding turns text into a vector, a list of numbers positioned so that text with similar meaning
+        lands nearby. That is what makes a paraphrase findable: you do not have to know the function's name.
+      </p>
+      <p>
+        A node is <strong>not</strong> embedded as its source. <code>nodeText</code> composes a deliberate
+        string: documentation embeds its own prose; a file becomes a one-line description; a code node leads
+        with its signature and path, then folds in up to 600 characters of its body. Leading with the signature
+        keeps exact-name queries strong, and the body slice is what lets a paraphrase reach the right function
+        at all.
+      </p>
+    </div>
+
+    <pre><span class="cm">// what nodeText composes for one Go method</span>
+<span class="hlc">Func</span> Indexer.Graph<span class="hl">() *graph.Graph</span>
+  in internal/engine/indexer.go
+<span class="cm">&#8627; then &#8804;600 chars of the declaration body ----------------</span>
+  func (ixr *Indexer) Graph() *graph.Graph { return ixr.g }</pre>
+
+    <div class="split" style="margin-top:34px">
+      <div>
+        <h3>Where the vectors come from</h3>
+        <p>
+          Any OpenAI-compatible <code>/v1/embeddings</code> endpoint you run yourself, llama.cpp, Ollama, vLLM,
+          LM Studio. The default assumes <code>http://localhost:8090</code> serving <code>nomic</code> at
+          <strong>256 dimensions</strong>, with an 8,192-character cap so an oversized node is truncated rather
+          than rejected. This is the only part of the system that is not local computation, and it is still
+          your own process.
+        </p>
+      </div>
+      <div>
+        <h3>Why the cache is keyed by text</h3>
+        <p>
+          Every rebuild constructs fresh node objects, so a cache keyed by node identity would miss on
+          everything. Keyed by the composed text, an unchanged function reuses its vector and never reaches the
+          embedder, which is why re-indexing one edited file costs one or two embed calls, not thousands. The
+          same fact cuts the other way: change what <code>nodeText</code> composes and every snapshot ever
+          built is stale.
+        </p>
+      </div>
+    </div>
+
+    <div class="prose" style="margin-top:34px">
+      <h3>The model, and why 256 dimensions</h3>
+      <p>
+        The default is <strong>nomic-embed-text-v1.5</strong>: 137M parameters, Apache-2.0, with weights,
+        training data and training code all published. It accepts 8,192 tokens, which is why nothing here has
+        to chunk a function into pieces and stitch the results back together.
+      </p>
+      <p>
+        What makes a 256-dimension vector safe is how the model was trained. <strong>Matryoshka
+        representation learning</strong> nests the information: the training loss is applied to the first 64
+        components, the first 128, the first 256 and so on, so every prefix of the vector is a working
+        embedding in its own right. A 256-dimension vector here is not a 768-dimension vector with two thirds
+        discarded. It is the 256-dimension embedding the model was trained to produce.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          MTEB averages as nomic publishes them for this model. Bytes are 4-byte floats, one vector per node,
+          before gzip. Every row comes from one set of weights, so the dimension is a serving choice, not a
+          different model or a second download.
+        </caption>
+        <thead><tr><th class="num">Dims</th><th class="num">MTEB avg</th><th class="num">Bytes/vector</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td class="num">768</td><td class="num">62.28</td><td class="num">3,072</td><td>model native; nomic reports v1 at 62.39</td></tr>
+          <tr><td class="num">512</td><td class="num">61.96</td><td class="num">2,048</td><td>nomic's claim: ahead of text-embedding-ada-002 at a third of the memory</td></tr>
+          <tr><td class="num"><strong>256</strong></td><td class="num"><strong>61.04</strong></td><td class="num"><strong>1,024</strong></td><td>what this ships</td></tr>
+          <tr><td class="num">128</td><td class="num">59.34</td><td class="num">512</td><td></td></tr>
+          <tr><td class="num">64</td><td class="num">56.10</td><td class="num">256</td><td>about where all-MiniLM-L6-v2 lands, at a twelfth of the memory</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:30px">
+      <p>
+        Section 10 has the measurement that settled it: on this project's own corpus, full 768 dimensions
+        scored <strong>+0.2 points</strong> over the 256 truncation. MTEB puts the gap at 1.24. Either figure
+        buys three times the bytes per vector, so 256 is the default and <code>-embedding-dims</code> is there
+        for anyone whose corpus disagrees.
+      </p>
+
+      <h3>Why the slice happens in this process</h3>
+      <p>
+        The OpenAI-compatible API has a <code>dimensions</code> parameter, and xray-memory deliberately does
+        not send it. Two gateways decided that: llama.cpp ignores the parameter and returns native dimensions
+        anyway, and Ollama truncates without renormalizing afterwards, which yields measurably worse vectors
+        than the proper procedure. So the reduction happens here, in <code>truncateNormalize</code>: keep the
+        first 256 components, then divide by the new L2 norm. Doing it on this side is uniform across every
+        gateway, and the fingerprint recorded in a snapshot is then guaranteed to describe the vectors that
+        are actually in it.
+      </p>
+      <p>
+        The renormalize step is not optional. A slice of a unit vector is not a unit vector, and cosine
+        similarity computed on vectors that are not unit length is not cosine similarity; the scores come out
+        skewed in favour of whichever vectors happened to keep more of their length. Nomic's reference snippet
+        also layer-norms before slicing, which a gateway has already done by the time it hands back a pooled,
+        normalized vector, so what is left for this side is the slice and the renorm.
+      </p>
+      <p>
+        One thing the model asks for and this does not send: a task prefix. The model card wants
+        <code>search_document:</code> on text being indexed and <code>search_query:</code> on a query, which
+        is how it tells the two roles apart. Here every text reaches the gateway as written, and the task name
+        only keeps a query's cached vector from colliding with the same string cached as a document, so
+        queries and nodes share one symmetric space. Adding the prefixes would change the embedded text, and
+        by the rule above that invalidates every vector in every snapshot, which makes it an experiment to
+        measure rather than a flag to flip.
+      </p>
+    </div>
+  </section>
+
+  <section id="s04">
+    <div class="shead">
+      <span class="ord">04</span>
+      <h2>The .gob.gz snapshot</h2>
+      <span class="owner">internal/engine/snapshot.go<br>hnswcodec.go</span>
+    </div>
+    <div class="prose">
+      <p>
+        A <strong>gob</strong> is Go's own binary serialization format, the language's equivalent of a
+        pickle: compact, self-describing about types, and much faster to read than JSON. A map's snapshot is
+        one gzipped gob file, <code>&lt;label&gt;.graph.gob.gz</code>, and it is the whole point of the
+        design: it carries the parsed graph <em>and</em> every vector <em>and</em> the built search index, so
+        loading it is neither a parse nor an embed pass.
+      </p>
+      <p>
+        The file holds two values written one after the other, and that order matters. A reader can decode the
+        first, learn what the map is, and stop, which is how a server can register dozens of maps at startup
+        without decoding a single graph.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          <code>Meta</code> is opaque: attributes xray-memory round-trips for other tools and never reads
+          itself. <code>HNSW</code> is additive, an older snapshot without it simply decodes as absent and the
+          index is rebuilt on load.
+        </caption>
+        <thead><tr><th>Value</th><th>When it is read</th><th>What it holds</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Header</td><td>at registration, always resident</td>
+            <td class="mono">Version · Label · RepoPath · BuiltAt · Fingerprint{Model, Dims, MaxInputChars} · Nodes · Edges · Summary · SummarySource · SummaryVec</td>
+          </tr>
+          <tr>
+            <td>Body</td><td>on the map's first hit</td>
+            <td class="mono">Files (parsed nodes + edges, per path) · Cache (nodeText &#8594; vector) · HNSW (the built index) · Meta</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <h3>Building one</h3>
+      <p>
+        This is the one and only pass that embeds every node. It needs the parser, so it needs the full
+        (CGO) build; everything afterwards does not.
+      </p>
+    </div>
+
+    <pre><span class="cm"># parse, embed and write ~/.xray-maps/myapp.graph.gob.gz</span>
+xray-memory snapshot -repo myapp=/path/to/myapp -snapshot-dir ~/.xray-maps
+
+<span class="cm"># serve every snapshot in that directory, parser-free</span>
+xray-memory serve-snapshots -snapshot-dir ~/.xray-maps -addr :8084</pre>
+
+    <div class="split" style="margin-top:34px">
+      <div>
+        <h3>The fingerprint</h3>
+        <p>
+          A snapshot is only valid for a server embedding into the same space. A <code>Dims</code> mismatch is
+          a hard rejection, those vectors are not comparable to a query embedding, and a silent mismatch would
+          return confident nonsense. A model <em>name</em> difference only warns: a llama.cpp sidecar serves
+          whatever GGUF is loaded regardless of the label it is called by.
+        </p>
+      </div>
+      <div>
+        <h3>Why the index ships inside</h3>
+        <p>
+          The search index (HNSW, a navigable graph of vectors, so a query visits a few hundred neighbours
+          instead of scoring all of them) is expensive to build and cheap to read. Rebuilding it on load costs
+          seconds for a few thousand nodes, and it recurs on every restart and after every idle eviction.
+          Carrying it in the file turns that into a read.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section id="s05">
+    <div class="shead">
+      <span class="ord">05</span>
+      <h2>Serving many maps at once</h2>
+      <span class="owner">internal/engine/registry.go</span>
+    </div>
+    <div class="prose">
+      <p>
+        One process serves many maps, and there is no merged graph: each keeps its own graph, its own index and
+        its own vector cache, so ranking never bleeds between projects and a whole map's memory drops in one
+        eviction. Idle maps are evicted after a TTL if one is set; their routing vector stays resident, so they
+        remain reachable and reload from disk on the next hit.
+      </p>
+      <p>
+        A query naming a map is a free fast path, no embedding needed to route it. A query that names none is
+        embedded once and cosine-ranked against every resident summary vector; <code>-route-fanout</code>
+        decides how many of the best-matching maps actually get searched. Where a map's summary came from is
+        recorded (<code>explicit</code>, <code>readme</code>, or a fallback built from symbol names), because a
+        routing input you cannot inspect is one you cannot debug.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          Illustrative shape, not a real directory listing. What matters is the spread: one large repository can
+          outweigh every other map put together, and the small ones cost almost nothing to keep registered,
+          because registration reads each header and stops there.
+        </caption>
+        <thead><tr><th>Map</th><th class="num">Nodes</th><th class="num">Edges</th><th class="num">On disk</th><th>Summary from</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">a large service repo</td><td class="num">12,000</td><td class="num">100,000</td><td class="num">~35 MB</td><td class="mono">readme</td></tr>
+          <tr><td class="mono">a mid-size repo</td><td class="num">2,000</td><td class="num">15,000</td><td class="num">~6 MB</td><td class="mono">readme</td></tr>
+          <tr><td class="mono">a notes directory</td><td class="num">700</td><td class="num">400</td><td class="num">~2 MB</td><td class="mono">stats</td></tr>
+          <tr><td class="mono">a skills directory</td><td class="num">300</td><td class="num">270</td><td class="num">~1 MB</td><td class="mono">explicit</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s06">
+    <div class="shead">
+      <span class="ord">06</span>
+      <h2>How a search runs</h2>
+      <span class="owner">internal/index/index.go<br>lexical.go</span>
+    </div>
+    <div class="prose">
+      <p>
+        One embed call per search, the query string, nothing else. Then two channels run over the chosen map
+        and their results are merged.
+      </p>
+      <ul class="tight">
+        <li>
+          <strong>Semantic.</strong> The query vector walks the HNSW index for nearest neighbours by cosine
+          distance. It deliberately over-fetches, because kind and repo filters are applied <em>after</em> the
+          fetch and would otherwise thin the list below what you asked for.
+        </li>
+        <li>
+          <strong>Lexical.</strong> Per-word trigram postings, plain keyword matching. It exists because an
+          embedding can lose a query whose exact terms appear repeatedly in the target: a rare identifier the
+          model never encoded well is exactly the kind of thing you search for. When a query carries no usable
+          tokens it abstains rather than voting arbitrarily.
+        </li>
+      </ul>
+      <p>
+        The two are combined by <strong>reciprocal rank fusion</strong>: each result scores
+        <code>1/(60+rank)</code> in each channel and the sums are added. Ranks, not scores, cosine sits in a
+        narrow band while the keyword score is an unbounded integer, so only positions can be meaningfully
+        compared. Something ranked 8th semantically and 1st lexically still surfaces.
+      </p>
+      <h3>How a keyword matches, and why there is no Levenshtein pass</h3>
+      <p>
+        The obvious way to tolerate a typo is edit distance: count the single-character insertions, deletions
+        and substitutions that turn one word into another, and accept a word if that count is small. That is the
+        Levenshtein algorithm, and it is what the earlier implementation of this search used. It is also
+        quadratic in the length of the two words, and it has to run for every query token against every word of
+        every candidate, which is why it grew into the dominant cost of a search as the corpus grew.
+      </p>
+      <p>
+        This index does the same job with set overlap instead. Every word is reduced at index time to its
+        three-character slices, so <code>parser</code> becomes <code>par</code>, <code>ars</code>,
+        <code>rse</code>, <code>ser</code>. A query token matches a word when enough of their slices coincide,
+        and "enough" scales with length, because one wrong character costs a short word proportionally more
+        than a long one.
+      </p>
+
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          A typo inside a long word still matches, because it only spoils the two or three slices that span it.
+          Long words are held tight on purpose: at 90% overlap, near-miss neighbours with similar spellings do
+          not collide.
+        </caption>
+        <thead><tr><th>Token length</th><th class="num">Overlap required</th><th>Effect</th></tr></thead>
+        <tbody>
+          <tr><td>Very short (1 to 2 slices)</td><td class="num">100%</td><td>must match exactly; the token more or less is its own slice</td></tr>
+          <tr><td>Medium (3 to 4 slices)</td><td class="num">75%</td><td>tolerates roughly one substitution</td></tr>
+          <tr><td>Long (5 or more)</td><td class="num">90%</td><td>tight, to keep similar long words apart</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        A candidate then has to match a share of the query's tokens, not all of them. Demanding every token is
+        wrong for a question asked in words: "who is supposed to write the implementation code on this project?"
+        carries "supposed", which the right document may never contain even though it contains every other token
+        several times. Roughly two thirds is the gate; matching all of them still wins on rank.
+      </p>
+      <p>
+        Replies are deliberately lean: five ranked pointers by default, twenty at most, each with a short
+        preview. You pay for the one node you actually open, not for a file dump.
+      </p>
+    </div>
+  </section>
+
+  <section id="s07">
+    <div class="shead">
+      <span class="ord">07</span>
+      <h2>Retrieval: from a pointer to an answer</h2>
+      <span class="owner">internal/mcpserver</span>
+    </div>
+    <div class="prose">
+      <p>
+        A search answers <em>where</em>. These answer <em>what</em> and <em>what else</em>. Every read tool
+        carries MCP read-only / non-destructive / idempotent annotations, so a client never flags them as
+        dangerous.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption><code>update_code_graph</code> is the only tool that writes.</caption>
+        <thead><tr><th>Tool</th><th>Takes</th><th>Gives back</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">search_graph</td><td>a question in words</td><td>ranked pointers to code, manifests, files</td></tr>
+          <tr><td class="mono">search_graph_docs</td><td>a question in words</td><td>ranked pointers to prose: ADRs, READMEs, notes</td></tr>
+          <tr><td class="mono">get_graph_node</td><td>one <code>qn</code></td><td>the full body <em>plus</em> relations both ways, calls, called_by, imports</td></tr>
+          <tr><td class="mono">get_graph_impact</td><td>seed symbols, a depth</td><td>the blast radius: what breaks if you change them</td></tr>
+          <tr><td class="mono">get_graph_risk</td><td>one <code>qn</code></td><td>LOW / MEDIUM / HIGH change-risk triage</td></tr>
+          <tr><td class="mono">get_graph_stats</td><td>a map name</td><td>counts, languages, embedded nodes, routing summary</td></tr>
+          <tr><td class="mono">update_code_graph</td><td>changed paths</td><td><span class="tag on">re-indexes them</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="s08">
+    <div class="shead">
+      <span class="ord">08</span>
+      <h2>Keeping it current</h2>
+      <span class="owner">internal/engine/update.go</span>
+    </div>
+    <div class="prose">
+      <p>
+        The serving process holds the live graph, so keeping it current is a small message, not a rebuild.
+        Changed files are re-parsed, and because the vector cache is keyed by text, only genuinely changed
+        nodes reach the embedder. A one-file edit lands in roughly 10&#8211;70&#160;ms.
+      </p>
+      <p>
+        The reply counts <code>changed</code>, <code>removed</code> and <code>skipped</code> separately, and
+        names paths belonging to no served map as <code>unowned</code>, so an update that indexed nothing says
+        so, instead of passing as a success. <code>skipped</code> matters in the parser-free build: it cannot
+        read code files, and silently treating "no nodes" as "file deleted" would empty a graph.
+      </p>
+    </div>
+
+    <pre><span class="cm"># after an edit, from anywhere</span>
+xray-memory update path/to/file.go
+
+<span class="cm"># or let the agent do it: `xray-memory install` drops a PostToolUse</span>
+<span class="cm"># hook into .claude/ that calls update_code_graph on every write</span></pre>
+  </section>
+
+  <section id="s09">
+    <div class="shead">
+      <span class="ord">09</span>
+      <h2>Watching it work</h2>
+      <span class="owner">internal/hub<br>/ws</span>
+    </div>
+    <div class="prose">
+      <p>
+        Every search publishes a <em>hit</em> event on a WebSocket at <code>/ws</code>: the qualified names it
+        returned, their kinds, and the query. The graph page listens, and lights the region those hits landed
+        in, the whole category washes brighter and dims back down over about twenty seconds, so a search is
+        still legible seconds after it happened. Re-indexing publishes a change event the same way.
+      </p>
+      <p>
+        That is the point of the visualisation: not decoration, but a way to see which part of the corpus an
+        agent is actually working in, from the outside, without reading its transcript.
+      </p>
+    </div>
+  </section>
+
+
+  <section id="s10">
+    <div class="shead">
+      <span class="ord">10</span>
+      <h2>What a query costs</h2>
+      <span class="owner">measured, not projected<br>method below each table</span>
+    </div>
+    <div class="prose">
+      <p>
+        Ten natural-language searches against this server, five results each, timed at the HTTP
+        boundary on loopback. The corpus was several maps loaded at once, on the order of 19,000 nodes in total. The eval below
+        uses a smaller, self-contained corpus: this repository alone.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          The slow one is not a slow search. It was the first query to reach a map whose body was
+          still on disk, so it paid for decoding the graph and its index before answering; the next
+          query to that map is in the tens of milliseconds. Every search makes exactly one embedder
+          call, for the query string.
+        </caption>
+        <thead><tr><th>Measurement</th><th class="num">Value</th><th>What it is</th></tr></thead>
+        <tbody>
+          <tr><td>Median</td><td class="num">56 ms</td><td>ten queries, warm maps</td></tr>
+          <tr><td>Fastest</td><td class="num">36 ms</td><td>routing hit a loaded map directly</td></tr>
+          <tr><td>Slowest</td><td class="num">1,663 ms</td><td>cold map: body decode and index load, paid once</td></tr>
+          <tr><td>Reply size</td><td class="num">2.7 KB</td><td>mean; 2.2&#8211;3.4 KB across the ten</td></tr>
+          <tr><td>Embedder calls</td><td class="num">1</td><td>per search, the query only</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <h3>Does it find the right thing?</h3>
+      <p>
+        Latency says nothing about whether the answer was correct, so the repository carries an eval that
+        measures retrieval quality directly. It builds a snapshot of this codebase into a temporary directory,
+        serves it on a spare port, runs a fixed set of probes against it, then throws both away. Nothing
+        persistent is read or written.
+      </p>
+      <p>
+        Five dimensions are scored separately, so a regression names itself instead of moving one blended
+        number. Run it with <code>make eval</code>; add <code>EVAL_BASELINE=&lt;file&gt;</code> to diff against a
+        stored run, which exits non-zero if recall or MRR falls more than five points or median latency rises
+        by more than half.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          One run against this repository, 737 nodes. MRR is mean reciprocal rank: 1.0 means the right answer
+          was always first, 0.5 means it was typically second.
+        </caption>
+        <thead><tr><th>Dimension</th><th class="num">Result</th><th>What it establishes</th></tr></thead>
+        <tbody>
+          <tr><td>health</td><td class="num">737 / 737</td><td>every node is in the index. One that is missing is unreachable at any depth, by any phrasing, and nothing else would reveal it</td></tr>
+          <tr><td>recall@5</td><td class="num">81.5%</td><td>the right node is in the first five results</td></tr>
+          <tr><td>recall@10</td><td class="num">96.3%</td><td>almost always inside ten</td></tr>
+          <tr><td>MRR</td><td class="num">0.690</td><td>and usually near the top of those</td></tr>
+          <tr><td>kinds</td><td class="num">0 / 39</td><td>no doc nodes leaking into a code search, or the reverse</td></tr>
+          <tr><td>graph</td><td class="num">7 / 7</td><td>expected caller and callee present on each checked symbol, and no edge pointing outside the repository</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        The recall number is split by how the question was asked, because those fail differently.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          Paraphrase is the weakest and that is the honest result, not a curation artifact: it is also the case
+          real questions hit most often. A verbatim failure would mean something structural is broken, which is
+          why it is worth measuring separately rather than averaging it away.
+        </caption>
+        <thead><tr><th>How the question was asked</th><th class="num">n</th><th class="num">recall@5</th><th class="num">recall@10</th><th class="num">MRR</th></tr></thead>
+        <tbody>
+          <tr><td>Verbatim, the symbol's own name</td><td class="num">7</td><td class="num">100.0</td><td class="num">100.0</td><td class="num">1.000</td></tr>
+          <tr><td>Path, a file or part of one</td><td class="num">6</td><td class="num">100.0</td><td class="num">100.0</td><td class="num">0.875</td></tr>
+          <tr><td>Content, a phrase from the body</td><td class="num">6</td><td class="num">66.7</td><td class="num">100.0</td><td class="num">0.711</td></tr>
+          <tr><td>Paraphrase, different words entirely</td><td class="num">8</td><td class="num">62.5</td><td class="num">87.5</td><td class="num">0.266</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <h3>Where the milliseconds go</h3>
+      <p>
+        From the deployed retrieval eval on the hosted build, pod-pinned, 40-query bursts, server
+        timers rather than client stopwatches. The shape is what matters here: the vector index is
+        not the cost.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          Server-side search on that build went 925&#160;ms &#8594; 56&#160;ms &#8594; 26.6&#160;ms over
+          several rounds of work, and the remaining floor is the embedder. A client stopwatch there
+          reads ~107&#160;ms, but 59&#160;ms of that is network between London and the cluster, which
+          is why the phases below are timed inside the server.
+        </caption>
+        <thead><tr><th>Phase</th><th class="num">ms</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td>Query embed</td><td class="num">17.1</td><td>the floor; everything else is smaller</td></tr>
+          <tr><td>Lexical channel</td><td class="num">8.1</td><td>was 10.7 before the last round</td></tr>
+          <tr><td>HNSW search</td><td class="num">0.57</td><td>the vector index answers in under a millisecond</td></tr>
+          <tr><td>Hydrate + rerank</td><td class="num">0.58</td><td>fusion and reply shaping</td></tr>
+          <tr><td><strong>Fused total</strong></td><td class="num">26.6</td><td>was 29.0</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <h3>Against a symbol-search CLI</h3>
+      <p>
+        Eight questions about one repository, four symbol lookups, four capability probes, run once
+        each against both tools, no retries. Tokens are real <code>tiktoken</code> counts of what each
+        tool printed.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          Read the token column carefully: it is not a win for either side. Two of the CLI's cheapest
+          replies were <code>No symbols found.</code> at four tokens each, a capability gap, not
+          efficiency, because its search indexes code symbols only. The speed gap is architecture
+          rather than tuning: that CLI spawns a process per call (380&#8211;850&#160;ms every time),
+          this is a persistent server on loopback.
+        </caption>
+        <thead><tr><th>Across 8 questions</th><th class="num">Symbol-search CLI</th><th class="num">xray</th></tr></thead>
+        <tbody>
+          <tr><td>Wall clock</td><td class="num">5,151 ms</td><td class="num">82 ms</td></tr>
+          <tr><td>Tool calls</td><td class="num">12</td><td class="num">12</td></tr>
+          <tr><td>Tokens printed</td><td class="num">3,373</td><td class="num">6,786</td></tr>
+          <tr><td>Docs / ADR search</td><td class="num"><span class="tag off">none</span></td><td class="num"><span class="tag on">yes</span></td></tr>
+          <tr><td>Manifest search</td><td class="num"><span class="tag off">none</span></td><td class="num"><span class="tag on">yes</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <h3>Known limitation, stated plainly</h3>
+      <p>
+        Change-risk scoring undercounts callers across package boundaries: the linker treats
+        <code>pkg.Func()</code> as external, which is right for a third-party call and wrong for a call
+        into another package of the same repo. A <code>LOW</code> rating can therefore be
+        under-confident. The same eval work that produced the numbers above is what found it, along
+        with a search that silently starved rare node kinds once the corpus outgrew its result window,
+        which was fixed by scanning that kind exactly instead of filtering a global top-K.
+      </p>
+    </div>
+  </section>
+
+
+  <section id="s11">
+    <div class="shead">
+      <span class="ord">11</span>
+      <h2>How this compares</h2>
+      <span class="owner">public benchmarks<br>measured on the memory substrate, not this graph</span>
+    </div>
+    <div class="prose">
+      <p>
+        Read this section knowing what it does and does not cover. The agent-memory market publishes on two
+        benchmarks. LongMemEval (500 questions about facts buried in ~115k tokens of past conversation) and
+        LoCoMo (1,986 questions over ten long dialogues). Those measure a <em>conversational</em> memory
+        substrate. They were run against X-Ray's cell store, which shares this project's retrieval machinery, the same hybrid lexical + HNSW search, the same RRF fusion, the same 256-dimension embeddings, but
+        not its code parsing. What transfers is what the numbers say about <strong>retrieval design</strong>.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          The reader model matters as much as the memory system, so only same-reader comparisons are fair.
+          Caveats that depress these numbers and are not hidden: one search per question (a deployed agent
+          issues several), no reranker, no query rewriting, and a judge measured 2&#8211;3 points harsher than
+          the gold standard on spot-checks.
+        </caption>
+        <thead><tr><th>LongMemEval, full 500</th><th class="num">Score</th><th>What it means</th></tr></thead>
+        <tbody>
+          <tr><td>Retrieval, all evidence in top 20</td><td class="num">72.1%</td><td>94.5% of questions had at least one piece of the evidence</td></tr>
+          <tr><td>Accuracy, mini-class reader</td><td class="num">54.0%</td><td>the honest same-class comparison</td></tr>
+          <tr><td>Accuracy, frontier reader</td><td class="num">65.6%</td><td>identical retrieval; the reader alone is worth +11.6 points</td></tr>
+          <tr><td>Verbatim recall (single-session-assistant)</td><td class="num">89.3%</td><td>with a small reader; Zep scores 80.4 here with a much larger one</td></tr>
+          <tr><td>Preference questions</td><td class="num">16.7%</td><td>the worst category: building a profile from scattered remarks needs distillation, not better search</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+
+    <div class="prose">
+      <h3>Where that puts it</h3>
+      <p>
+        Nine systems measured by one research group under a single protocol, all with the same small reader,
+        so the ranking is comparable. Scores are the percentage of 500 questions answered correctly.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          The row to compare against is full context: no memory system at all, the whole history pasted in.
+          Anything below it is losing to brute force. X-Ray is listed at its small-reader score because that
+          is how every other row was measured; the same retrieval read by a frontier model scores 65.6, which
+          would clear the full-context baseline but belongs in the table above, not in this ranking.
+          Reference points with 2026 frontier readers sit on a
+          different scale and are not comparable to this table: Honcho 90.4, Hindsight 91.4, Mastra 94.9.
+        </caption>
+        <thead><tr><th>System</th><th class="num">Score</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td>MemU</td><td class="num">38.4</td><td></td></tr>
+          <tr><td>MIRIX</td><td class="num">43.5</td><td></td></tr>
+          <tr><td><strong>X-Ray</strong></td><td class="num">54.0</td><td>same reader class as this table</td></tr>
+          <tr><td>Full context, no memory system</td><td class="num">55.4</td><td>the honest baseline</td></tr>
+          <tr><td>Zep</td><td class="num">63.8</td><td>self-reported</td></tr>
+          <tr><td>Mem0</td><td class="num">66.4</td><td>open-source build, third-party rerun</td></tr>
+          <tr><td>Memobase</td><td class="num">72.4</td><td></td></tr>
+          <tr><td>MemOS</td><td class="num">77.8</td><td>its own README claims 89.2</td></tr>
+          <tr><td>EverMemOS</td><td class="num">83.0</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        So: mid-field on the published number, ahead on verbatim recall, behind where the question needs
+        distillation rather than retrieval. The gap to the top is pipeline work, extraction and reranking, not
+        a better index and not a bigger model.
+      </p>
+
+      <h3>Reading published numbers</h3>
+      <p>
+        There is no official leaderboard; every circulating one is run by a vendor. Three things are worth
+        checking before comparing any two figures.
+      </p>
+      <ul class="tight">
+        <li><strong>Which reader answered.</strong> The same memories scored 54.0 with a small model and 65.6
+        with a large one. Reader progress alone moved the theoretical ceiling from about 87 to about 92.</li>
+        <li><strong>Retrieval or accuracy.</strong> Several headline figures are recall, whether the right
+        document was fetched, printed beside accuracy numbers. One vendor's "95%" is recall; its answer
+        accuracy is 81.6.</li>
+        <li><strong>Who judged.</strong> Self-judged runs, invented weighted metrics and README-only claims all
+        appear. Independent reruns have landed 11 points below a published claim for the same system.</li>
+      </ul>
+    </div>
+
+    <div class="prose">
+      <h3>The finding that settled a choice here</h3>
+      <p>
+        Full 768-dimension embeddings scored <strong>+0.2 points</strong> over the 256-dimension truncation,
+        and fetching deeper candidate lists gained +4.1 before flattening out. That is why this ships 256
+        dimensions: on the measurement, the smaller vector performs the same, and a snapshot is a quarter of
+        the size.
+      </p>
+
+      <h3>Against a temporal knowledge graph (Zep / Graphiti)</h3>
+      <p>
+        Graphiti tops LoCoMo with a knowledge graph on Neo4j. Reading its source and its eval code, three
+        mechanisms buy the score, facts distilled from every message at ingest with relative dates resolved to
+        absolute ones, entity summaries that pre-join what is known about a thing across sessions, and a
+        cross-encoder reranking candidates before the reader sees them. Its winning configuration does no graph
+        traversal at all.
+      </p>
+      <p>
+        The database is not the differentiator. Graphiti needs four generic capabilities from its store, vector search, keyword fulltext, string-keyed edges, bounded link-walks, and three of those already
+        run in-process here, with no server to operate. Adopting a graph database would close none of the
+        measured gaps.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>
+          The real difference is <em>where the work happens</em>: that pipeline spends an LLM call per message
+          at ingest, so retrieval meets pre-digested facts. This one stores raw and searches raw, so retrieval
+          is instant and lossless, and pays for it on questions that need distillation.
+        </caption>
+        <thead><tr><th>Mechanism</th><th>Here</th><th>The gap</th></tr></thead>
+        <tbody>
+          <tr><td>Hybrid lexical + vector + RRF</td><td><span class="tag on">equivalent</span></td><td>plus a shortcut: a confident keyword match answers without embedding the query at all</td></tr>
+          <tr><td>Non-lossy raw storage</td><td><span class="tag on">equivalent</span></td><td>systems that distil at ingest lose 17.7 points on verbatim recall; their own paper says so</td></tr>
+          <tr><td>Ingest-time fact extraction</td><td><span class="tag off">absent</span></td><td>distillation happens later, in batch</td></tr>
+          <tr><td>Reranker beyond RRF</td><td><span class="tag off">absent</span></td><td>the one reranker their winning run actually uses</td></tr>
+          <tr><td>Entity resolution + summaries</td><td><span class="tag off">absent</span></td><td>the largest structural difference between the two</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        LoCoMo is no longer a target. Its conversations fit inside a modern context window, so simply reading
+        everything scores about 73, higher than most memory systems, and its leaderboard is contested between
+        vendors measuring each other. It is still run, as a way to catch retrieval regressions.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    xray-memory &#183; everything above runs on this machine; only the embedding endpoint is a separate process, and it is yours.<br>
+    internal/parser &#183; internal/graph &#183; internal/index &#183; internal/engine &#183; internal/hub
+  </footer>
+
+  </div>
+
+</div>
+</div>
+
+<script>
+  // Scroll-spy over the rail. The rail is a map of the sheet, so it has to say
+  // where the reader actually is, a static list of links would go stale the
+  // moment anyone scrolls. The band is deliberately narrow (45%-50%) so exactly
+  // one section is "current" while a long section is being read.
+  (function () {
+    var links = {}
+    document.querySelectorAll(".rail a[href^='#']").forEach(function (a) { links[a.getAttribute("href").slice(1)] = a })
+    var sections = document.querySelectorAll("section[id]")
+    if (!sections.length || !("IntersectionObserver" in window)) return
+    var current = null
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return
+        var a = links[e.target.id]
+        if (!a || a === current) return
+        if (current) current.classList.remove("current")
+        a.classList.add("current")
+        current = a
+      })
+    }, { rootMargin: "-45% 0px -50% 0px", threshold: 0 })
+    sections.forEach(function (sec) { io.observe(sec) })
+  })()
+</script>
+
+</body>
+</html>

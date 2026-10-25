@@ -1,0 +1,20 @@
+# Python deps for the scripts in this directory.
+#
+# There was no requirements file before — the venv was built ad hoc and then
+# deleted, so this is reconstructed from the scripts' actual imports.
+#
+#   python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt
+#
+# Versions are floors, not pins: nothing here is load-bearing enough to freeze,
+# and pinning a stale set is what made the old venv drift out of usefulness.
+
+# upsert_memory.py — MCP client + image downscaling to 512x512 JPEG
+mcp>=1.27
+pillow>=12.0
+
+# eval_voice_sessions.py — Phoenix trace evals (ADR-009).
+# NOTE: neither of these was present in the deleted .venv, so that venv could
+# only ever run upsert_memory.py. Install these before running the evals.
+pandas>=2.0
+arize-phoenix-client>=1.0
+arize-phoenix-evals>=2.0

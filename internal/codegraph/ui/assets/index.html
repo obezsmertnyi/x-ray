@@ -1,0 +1,1929 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>X-Ray — Doc/Code Graph</title>
+<!--
+  Favicon: the wordmark's teal→violet spectrum drawn as a small graph. Inline
+  data: URIs rather than a /ui/favicon route, so the page stays one
+  self-contained document. The PNG carries sizes="32x32" so browsers that take
+  SVG icons still prefer the SVG; it is only for those that do not.
+-->
+<link rel="icon" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAABTVBMVEUAAAAMDAwKCg8KCg8KCg8KCg8KChAJCQ8JCQ8JCQ8KCg8KCg8MDAwKChAKCg8KCg8KChAKCg8NDQ0JCRAKCg8KCg8RMjIiloootaMRMjEpJD53Y7OPd9UpIz0s0Lst1L8sz7sRMTGkiPWni/qjiPQoIzwilYl2Y7IntaUotqSPd9ePeNYnopaAbsJ2YrEt1MA+wcMbOEAnLUKPkeenjPonIjslo5U4xb5FxctLucgdN0ElLkGAl9+Pmu6Vj+2CbsQWNzpCvMJOwc9TtcwfNkIjL0B5nNuGnuqJlOYtLUkYNjtLuMVWvNNgrctVZXRVY3J0n9F+o+aBmOIrLkgbNj1ZsMaIl6mKlaaIl6p6mtUoLkNUZXJYYnRTZHFYY3VZr8WHl6mJlqp6m9ZWZHVWYnN0n9IlpJaVju2DbcU+wsOPkugno5eBbsMilIgQMDCxyqafAAAAFXRSTlMAFoTP9M6DVfJU/vEVgtDzgfAUUs1Xa/zlAAABWklEQVQ4y52T51PCQBDFlxIMzaCwAgIGDBAr2HvvvaKx967w/380d/HCzeDFGd+X3Oz75bJ3LwsA4HJ7vNggr+RzAVWTjALJfuoHUKiASbhkdFAwBG50VBia6bMtnogn6+X2VDqVoSsJFOp3qKqazdl+p6Zp+QLtE2glrhIVGZDSiHS6toAuCnQzoIcCvRxQpEAfA/opUOKAZNb0ywODlj80PEJ6GOUAzBUTY+MTk1NkPT0zOzefLlk+A4gWFpeWVxBX19Y3NutVDsCt7Z3dvf2Dw6Nj/B3AysmpYZydX6AIwEvD1BWKgWsC3IiByu2dYdw/CD9Bmnx8ehY26XhMM+4X7qJe31jcPwCNu/zOrvpDs+NGPu5Ptu3Xf+OuMkDn45btuLM1BmTydtxB8LC4q7X62Qo6i1sCn/NvH/ljcFpaAfxOoxclw+kPCt+PWuMdCseURleJRcz94Ru6hm6HABrBCQAAAABJRU5ErkJggg==" />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' x2='1'><stop offset='0' stop-color='%232dd4bf'/><stop offset='1' stop-color='%23a78bfa'/></linearGradient></defs><rect width='32' height='32' rx='7' fill='%230a0a0f'/><path d='M8.5 8.5L23.5 23.5M23.5 8.5L8.5 23.5' stroke='url(%23g)' stroke-width='2.4' stroke-linecap='round'/><circle cx='8.5' cy='8.5' r='3.4' fill='%232dd4bf'/><circle cx='8.5' cy='23.5' r='3.4' fill='%232dd4bf'/><circle cx='23.5' cy='8.5' r='3.4' fill='%23a78bfa'/><circle cx='23.5' cy='23.5' r='3.4' fill='%23a78bfa'/><circle cx='16' cy='16' r='2.6' fill='%238a95a6'/></svg>" />
+<!--
+  Same Voronoi / radial-category rendering as the main X-Ray app's memory
+  graph (ui/components/memory-graph.tsx + ui/lib/category-config.ts), ported
+  to vanilla JS so this stays a single offline document — no build step, no
+  framework, no CDN. Both `/ui` (browser) and the `ui://recall/graph` MCP
+  App resource serve this exact file with d3 inlined by ui.go's strings.Replace
+  on the literal tag below; that string must survive verbatim.
+-->
+<script src="./d3.v7.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --panel: rgba(12,12,18,0.96);
+    --border: rgba(255,255,255,0.10);
+    --muted: #8a8a96;
+    --fg: #e8e8ee;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #app { position: relative; width: 100%; height: 100vh; overflow: hidden; }
+  svg { width: 100%; height: 100%; display: block; cursor: grab; }
+  svg:active { cursor: grabbing; }
+
+  /* Radial fade overlay — the CSS-side half of the fade effect. The SVG mask
+     (see #rmask below) fades the drawn content itself; this independent DOM
+     layer fades the same way regardless of pan/zoom, so the edges of the
+     viewport never show a hard rectangle even when the graph is zoomed in. */
+  .fade-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 52%, var(--bg) 88%); }
+
+  .toolbar { position: absolute; left: 12px; top: 12px; z-index: 20; display: flex; gap: 8px; align-items: center; }
+  /* Right-hand toolbar — search lives opposite the filters so it sits under
+     the reader's hand and away from the graph's left-side controls. Status
+     precedes the input so a long message grows leftward, never off-screen. */
+  .toolbar-right { position: absolute; right: 12px; top: 12px; z-index: 20; display: flex; gap: 8px; align-items: center; }
+  .project { height: 30px; padding: 0 8px; font-size: 12px; color: var(--fg); background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 8px; backdrop-filter: blur(6px); cursor: pointer; }
+  /* Wordmark: the letters carry the graph's own spectrum — Class teal through
+     the neutral to Test violet — so the mark reads as part of the legend
+     rather than as applied branding. Gradient is painted through the glyphs
+     (background-clip:text), with a plain color fallback for anything that
+     cannot clip a background to text. */
+  .wordmark {
+    font-size: 13px; font-weight: 700; letter-spacing: 0.34em; text-transform: uppercase;
+    color: #7f8da3;
+    background: linear-gradient(90deg, #2dd4bf 0%, #8a95a6 52%, #a78bfa 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    opacity: 0.92; padding-right: 8px; user-select: none; line-height: 1;
+  }
+  @supports not ((background-clip: text) or (-webkit-background-clip: text)) {
+    .wordmark { background: none; -webkit-text-fill-color: currentColor; }
+  }
+  .search { height: 30px; width: 200px; padding: 0 10px; font-size: 12px; color: var(--fg);
+    background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 8px; outline: none; backdrop-filter: blur(6px); }
+  .search:focus { border-color: rgba(255,255,255,0.25); }
+  /* Styled as a link, not a button, since it only ever navigates away. */
+  .about { display: inline-flex; align-items: center; height: 30px; padding: 0 10px; font-size: 12px;
+    color: var(--muted); background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 8px;
+    backdrop-filter: blur(6px); text-decoration: none; cursor: pointer; }
+  .about:hover { color: var(--fg); }
+  .about:focus-visible { outline: 1px solid rgba(255,255,255,0.4); outline-offset: 1px; border-color: rgba(255,255,255,0.25); }
+
+  /* Server-search status — right next to the search box, so a failed/slow
+     request is visible where the user is looking, not buried in the HUD. */
+  .search-status { font-size: 11px; color: var(--muted); white-space: nowrap; max-width: 260px;
+    overflow: hidden; text-overflow: ellipsis; }
+  .search-status.error { color: #f87171; }
+
+  .status { position: absolute; left: 0; right: 0; top: 0; bottom: 0; display: flex;
+    align-items: center; justify-content: center; color: var(--muted); font-size: 14px; z-index: 5; text-align: center; padding: 0 24px; }
+
+  .tip { position: absolute; z-index: 30; pointer-events: none; max-width: 280px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
+    font-size: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+  .tip .t { font-weight: 600; }
+  .tip .k { text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; }
+  .tip .m { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
+
+  /* ── Stats HUD — bottom-right, low-contrast, replaces the old color legend
+     (the watermark region labels now carry the color legend themselves). ── */
+  #hud { position: absolute; right: 12px; bottom: 12px; z-index: 20;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; line-height: 1.6;
+    text-align: right; pointer-events: none; user-select: none; }
+  #hud .label { color: rgba(232,232,238,0.11); }
+  #hud div { color: rgba(232,232,238,0.24); }
+
+  /* Proximity lens (see the JS section near renderSearchHud) — rows are
+     right-aligned against the viewport edge, so they must grow toward the
+     text, not off it: transform-origin sits at the row's own right edge.
+     This is a static layout property, not part of the hover animation, so it
+     applies unconditionally rather than living behind the motion query below. */
+  #hudGraph > div, #hudSearch > div { transform-origin: 100% 50%; }
+
+  /* #hud stays pointer-events:none end-to-end — a click must always reach the
+     graph underneath, even where the HUD's text sits on top of it — so the
+     resting wash above can never be read by :hover. lens-active is instead
+     toggled by JS from pointer *proximity*; it only raises the base color
+     each row can be scaled up into, while the JS falloff (an inline opacity)
+     pulls unfocused rows back down toward the resting wash. Without this
+     class the resting rgba(...,0.11)/(...,0.24) stays legible-enough at 1x
+     but reads as a muddy smear once a row is scaled to lens size. */
+  #hud.lens-active .label { color: rgba(232,232,238,0.5); }
+  #hud.lens-active div { color: rgba(232,232,238,0.72); }
+  #hud.lens-active .heading { color: rgba(232,232,238,0.42); }
+
+  /* Backing wash behind the lensed rows — background/box-shadow only, never
+     padding/margin/border-width, since any of those would resize #hud's own
+     box and shift every row's offsetTop out from under the pointer mid-hover. */
+  #hud.lens-active { background: rgba(10,10,15,0.5); box-shadow: 0 0 28px 20px rgba(10,10,15,0.42); border-radius: 8px; }
+
+  /* Reduced motion still gets the magnifier (it's the whole point of this
+     HUD), just without the easing — the transitions live only in this guarded
+     block so `reduce` naturally falls through to instant per-frame updates. */
+  @media (prefers-reduced-motion: no-preference) {
+    #hud { transition: background 0.15s ease-out, box-shadow 0.15s ease-out; }
+    #hudGraph > div, #hudSearch > div { transition: transform 0.08s ease-out, opacity 0.08s ease-out, color 0.08s ease-out; }
+  }
+
+  /* Search-quality sub-block (retrieval metrics from /metrics — see
+     fetchMetrics/renderSearchHud below) sits under its own low-contrast
+     heading so it reads as a distinct instrument, not a continuation of the
+     graph-shape rows above it. It renders EVERY field the metrics endpoint
+     returns — no priority subset, no zero-value omission, since a zero is
+     itself a finding here (e.g. "the lexical channel contributed nothing
+     this session") — so the block runs long; a tighter line-height keeps it
+     as compact as the row count allows. It cannot be a scroll container:
+     pointer-events stays none throughout, same as the rest of #hud, so this
+     never intercepts a click meant for the graph underneath it. */
+  #hud .heading { margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.08);
+    color: rgba(232,232,238,0.16); text-transform: uppercase; letter-spacing: 0.08em; font-size: 9px; }
+  #hudSearch { line-height: 1.32; }
+
+  /* ── Floating detail panels — replace the old fixed .ctx drawer. Anchored at
+     the click point, draggable by header, closable/minimizable/pinnable, so
+     several can be open (and pinned) at once. --accent is set per-panel from
+     the viewed node's category color. ── */
+  #panels { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+  .panel { --accent: #94a3b8; position: fixed; width: 380px; max-height: 520px; pointer-events: auto;
+    display: flex; flex-direction: column; border-radius: 16px; overflow: hidden;
+    background:
+      radial-gradient(ellipse 80% 40% at 50% 0%, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 70%),
+      linear-gradient(160deg, color-mix(in srgb, var(--accent) 10%, #080810) 0%, #09090f 45%, #060608 100%);
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, rgba(255,255,255,0.06));
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent),
+      0 32px 64px rgba(0,0,0,0.7),
+      0 0 120px color-mix(in srgb, var(--accent) 12%, transparent),
+      inset 0 1px 0 color-mix(in srgb, var(--accent) 30%, rgba(255,255,255,0.08));
+  }
+  .panel .glow { position: absolute; top: 0; left: 0; right: 0; height: 1px; pointer-events: none;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 55%, transparent), transparent); }
+  .panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 10px 14px; cursor: move; user-select: none; position: relative; z-index: 1;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 15%, rgba(255,255,255,0.05)); }
+  .panel .ph-left { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
+  .panel .cat { font-size: 10px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; flex-shrink: 0; color: var(--accent); }
+  .panel .mini-title { display: none; font-size: 11px; color: rgba(255,255,255,0.5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .panel.minimized .mini-title { display: inline; }
+  .panel .ph-actions { display: flex; gap: 2px; flex-shrink: 0; }
+  .panel .ph-actions button { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; padding: 4px 7px; border-radius: 6px; line-height: 1; }
+  .panel .ph-actions button:hover { color: var(--fg); background: rgba(255,255,255,0.08); }
+  .panel .body { flex: 1; overflow-y: auto; padding: 12px 14px; font-size: 13px; position: relative; z-index: 1; }
+  .panel.minimized .body { display: none; }
+  .panel .loc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; color: var(--muted); margin-bottom: 10px; }
+  .panel pre { white-space: pre-wrap; word-break: break-word; background: rgba(0,0,0,0.4); border-radius: 8px;
+    padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.5; color: rgba(232,232,238,0.92); margin: 0; }
+  .panel .md { line-height: 1.55; }
+  .panel .md h1, .panel .md h2, .panel .md h3 { font-size: 14px; margin: 14px 0 6px; }
+  .panel .md code { background: rgba(255,255,255,0.08); padding: 1px 4px; border-radius: 4px; font-size: 12px; }
+  .panel .md pre { margin: 8px 0; }
+  .panel .rel { margin-top: 16px; }
+  .panel .rel h4 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 4px; }
+  .panel .rel a { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px;
+    color: var(--muted); cursor: pointer; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .panel .rel a:hover { color: var(--fg); }
+  .empty { color: var(--muted); font-style: italic; }
+
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="toolbar">
+    <span class="wordmark">X-RAY</span>
+  </div>
+  <div class="toolbar-right">
+    <span id="searchStatus" class="search-status"></span>
+    <input id="search" class="search" type="text" placeholder="Search…" />
+    <select id="project" class="project" style="display:none"></select>
+    <a class="about" href="/ui/about">About</a>
+  </div>
+  <div id="status" class="status">Loading graph…</div>
+  <svg id="svg"></svg>
+  <div class="fade-overlay"></div>
+  <div id="tip" class="tip" style="display:none"></div>
+  <div id="panels"></div>
+  <div id="hud">
+    <div id="hudGraph"></div>
+    <div id="hudSearch"></div>
+    <div id="hudStream"></div>
+  </div>
+</div>
+
+<script>
+// ── MCP App bridge ───────────────────────────────────────────────────────────
+// Raw postMessage JSON-RPC — the MCP App bridge, no SDK needed.
+// In an MCP host the page is a sandboxed iframe: it acks the host's ui/initialize
+// and proxies tools/call through window.parent. Opened directly in a browser
+// (/ui) there's no host, so a 500ms fallback flips to fetching the JSON endpoints.
+let inHost = window.parent !== window
+let hostReady = false
+
+// callTool proxies a tools/call to the host and resolves with its result.
+function callTool(name, args) {
+  return new Promise((resolve, reject) => {
+    const id = (crypto.randomUUID && crypto.randomUUID()) || String(Math.random())
+    function listener(event) {
+      const data = event.data
+      if (!data || data.id !== id) return
+      window.removeEventListener("message", listener)
+      if (data.error) reject(new Error(data.error.message || JSON.stringify(data.error)))
+      else resolve(data.result)
+    }
+    window.addEventListener("message", listener)
+    window.parent.postMessage({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }, "*")
+  })
+}
+
+// Ack the host handshake when it arrives.
+window.addEventListener("message", function onInit(event) {
+  const data = event.data
+  if (data && data.method === "ui/initialize") {
+    window.removeEventListener("message", onInit)
+    hostReady = true
+    window.parent.postMessage({ jsonrpc: "2.0", id: data.id, result: { name: "recall-graph", version: "1.0.0" } }, "*")
+  }
+})
+
+function resultJSON(r) {
+  if (r && r.structuredContent && Array.isArray(r.structuredContent.nodes)) return r.structuredContent
+  const txt = r && r.content && r.content.find && (r.content.find(c => c.type === "text") || {}).text
+  if (txt) { try { return JSON.parse(txt) } catch (e) {} }
+  return r && r.structuredContent ? r.structuredContent : null
+}
+
+// proj() returns the active project label for multi-project (snapshot-server)
+// mode: the selector's value, falling back to ?project= in the page URL. Empty
+// on the single-graph server — both endpoints ignore an empty project.
+function proj() {
+  const sel = document.getElementById("project")
+  if (sel && sel.value) return sel.value
+  return new URLSearchParams(location.search).get("project") || ""
+}
+function withProject(url) {
+  const p = proj()
+  return p ? url + (url.includes("?") ? "&" : "?") + "project=" + encodeURIComponent(p) : url
+}
+
+async function loadGraph() {
+  if (inHost) {
+    try { const j = resultJSON(await callTool("code_graph_data", {})); if (j) return j }
+    catch (e) { console.warn("callTool(code_graph_data) failed:", e) }
+  }
+  const r = await fetch(withProject("./graph"))  // browser mode — /ui sits next to /graph
+  if (!r.ok) throw new Error("HTTP " + r.status)
+  return r.json()
+}
+
+async function loadNode(qn) {
+  if (inHost) {
+    try { const j = resultJSON(await callTool("get_code_node", { qn })); if (j) return j }
+    catch (e) { console.warn("callTool(get_code_node) failed:", e) }
+  }
+  // The qn is repo-namespaced (label//…), so /node routes by prefix; no project
+  // param needed, but include it for servers that scope by project.
+  const r = await fetch(withProject("./node?qn=" + encodeURIComponent(qn)))
+  if (!r.ok) throw new Error("HTTP " + r.status)
+  return r.json()
+}
+
+// populateProjects fills the selector from /projects (snapshot server). On the
+// single-graph server /projects 404s and the selector stays hidden.
+async function populateProjects() {
+  const sel = document.getElementById("project")
+  if (!sel) return
+  try {
+    const r = await fetch("./projects")
+    if (!r.ok) return
+    const list = await r.json()
+    if (!Array.isArray(list) || list.length === 0) return
+    const cur = new URLSearchParams(location.search).get("project") || ""
+    sel.innerHTML = ""
+    for (const p of list) {
+      const o = document.createElement("option")
+      o.value = p.label; o.textContent = p.label + (p.loaded ? " ●" : " ○")
+      if (p.label === cur) o.selected = true
+      sel.appendChild(o)
+    }
+    sel.style.display = ""
+    sel.addEventListener("change", () => {
+      // Pinned panels are keyed per-project (their qn's are project-namespaced),
+      // so a project switch retires the old set and restores the new one rather
+      // than leaving stale, now-foreign panels floating on screen. A search in
+      // progress is the same story — ranked hits point at qn's from whatever
+      // project answered the OLD query, which reload() is about to replace.
+      closeAllPanels()
+      restorePanels()
+      searchInputEl.value = ""
+      searchQuery = ""
+      serverHits = []
+      serverHitRank = new Map()
+      searchError = null
+      searchPending = false
+      searchSeq++ // supersede any in-flight search so its reply is discarded
+      updateSearchStatus()
+      reload()
+    })
+  } catch (e) { /* single-graph server: no /projects */ }
+}
+
+// ── Kind taxonomy ─────────────────────────────────────────────────────────────
+// CODE_KINDS/DOC_KINDS remain the All/Docs/Code filter predicate ONLY — color
+// now comes from the category taxonomy below, not from this binary split.
+const CODE_KINDS = new Set(["Func", "Class", "Type", "Test", "File", "Manifest", "Table", "View", "Routine", "Trigger", "Sequence", "Deployment", "Config", "Image"])
+const DOC_KINDS = new Set(["Doc", "Section"])
+const passesFilter = (k, f) => f === "all" ? true : f === "docs" ? DOC_KINDS.has(k) : CODE_KINDS.has(k)
+// shortLabel accepts either a full node (has .title) or a bare relation target
+// string (qn only, as returned in calls/called_by/imports).
+function shortLabel(n) {
+  if (typeof n === "string") n = { qn: n, title: "" }
+  return n.title || (n.qn.includes("::") ? n.qn.split("::").pop() : n.qn.replace(/^[^/]+\/\//, ""))
+}
+
+// ── Category taxonomy ─────────────────────────────────────────────────────────
+// One category per parser NodeInfo.Kind (see internal/memmaps/parser/types.go),
+// shaped like the main app's lib/category-config.ts Category type so the same
+// itemSeeds/label/legend math ports over unchanged. Angles are evenly spaced
+// around the circle (i * 2π/8) so no two category sectors overlap; tiers place
+// leafier/noisier kinds (tests, manifests, sections) further from center than
+// dense structural ones (docs, types).
+const TAU = Math.PI * 2
+const CATEGORIES = [
+  { id: "docs",      label: "Doc",      color: "#e8743b", kind: "Doc",      tier: 0.55, angle: 0 * TAU / 8 },
+  { id: "sections",  label: "Section",  color: "#fb923c", kind: "Section",  tier: 0.70, angle: 1 * TAU / 8 },
+  { id: "files",     label: "File",     color: "#fbbf24", kind: "File",     tier: 0.62, angle: 2 * TAU / 8 },
+  { id: "manifests", label: "Manifest", color: "#a3e635", kind: "Manifest", tier: 0.68, angle: 3 * TAU / 8 },
+  { id: "types",     label: "Type",     color: "#4ade80", kind: "Type",     tier: 0.58, angle: 4 * TAU / 8 },
+  { id: "classes",   label: "Class",    color: "#2dd4bf", kind: "Class",    tier: 0.60, angle: 5 * TAU / 8 },
+  { id: "funcs",     label: "Func",     color: "#38bdf8", kind: "Func",     tier: 0.65, angle: 6 * TAU / 8 },
+  { id: "tests",     label: "Test",     color: "#a78bfa", kind: "Test",     tier: 0.75, angle: 7 * TAU / 8 },
+]
+const UNKNOWN_CATEGORY = { id: "unknown", label: "Other", color: "#94a3b8", kind: "unknown", tier: 0.85, angle: 0 }
+const CATEGORY_BY_KIND = Object.fromEntries(CATEGORIES.map(c => [c.kind, c]))
+
+// The kinds above are what the code extractors emit, so a code map keeps the
+// same colours every time. A map can carry ANY kind though — a catalog declares
+// its own (Student, Incident, Dataset) — and collapsing all of them into one
+// grey "Other" made every non-code node look identical and unclassified, with
+// no legend row and no way to tell two kinds apart. An unseen kind gets its own
+// slot instead, derived from the kind string so the same kind is the same
+// colour on every reload and in every map. UNKNOWN_CATEGORY now only catches a
+// node with no kind at all.
+const derivedCategories = new Map()
+// Colours for derived kinds. These deliberately ignore the built-in hues above:
+// a map never mixes the two sets, because snapshot parses repos into code kinds
+// and a catalog declares its own, and there is never a merged graph — so the
+// only requirement is that derived kinds separate from EACH OTHER.
+//
+// Four steps, not a hue computed from the hash. A hash over the wheel produced
+// unusable colours: "Service" landed on File's exact hue, "Student" on the red
+// .search-status.error uses, and any blue/purple pair it picked collapsed under
+// protanopia (ΔE 1.7). These four are checked against the dark canvas —
+// adjacent-pair CVD ΔE 11.8 worst case, normal vision 21.9, all above 3:1
+// contrast. A fifth kind reuses a step rather than inventing a colour that
+// would fail those checks (a six-step version does: normal-vision ΔE 12.1).
+const DERIVED_COLORS = ["#4a8ad0", "#c9752c", "#17a692", "#9a6fd0"]
+
+function deriveCategory(kind) {
+  let h = 0
+  for (let i = 0; i < kind.length; i++) h = (h * 31 + kind.charCodeAt(i)) >>> 0
+  // The hash picks the step, so a kind keeps its colour across reloads and maps.
+  // On a collision we probe forward: two kinds in ONE map must never share a
+  // colour, and that guarantee is worth more than a kind holding the same step
+  // in every map it appears in.
+  const taken = new Set([...derivedCategories.values()].map(c => c.step))
+  let step = h % DERIVED_COLORS.length
+  for (let i = 0; i < DERIVED_COLORS.length && taken.has(step); i++) {
+    step = (step + 1) % DERIVED_COLORS.length
+  }
+  const cat = {
+    id: "kind-" + kind.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    label: kind,
+    color: DERIVED_COLORS[step],
+    kind,
+    tier: 0.72,
+    angle: ((h % 16) / 16) * TAU,
+    derived: true,
+    step,
+  }
+  derivedCategories.set(kind, cat)
+  return cat
+}
+const categoryOf = (kind) => {
+  if (!kind) return UNKNOWN_CATEGORY
+  return CATEGORY_BY_KIND[kind] || derivedCategories.get(kind) || deriveCategory(kind)
+}
+// allCategories is the built-in list plus whatever kinds this map turned out to
+// carry — the HUD (which is the colour legend) iterates this, not CATEGORIES,
+// so a catalog's kinds get rows too.
+const allCategories = () => CATEGORIES.concat([...derivedCategories.values()])
+
+// ── Render budget ─────────────────────────────────────────────────────────────
+// Bounded PREVIEW, same design as the reference memory graph
+// (ui/components/memory-graph.tsx + ui/lib/category-config.ts): the graph is
+// never the whole store, just a capped sample of it. MAX_NODES_PER_KIND caps
+// each category independently (so a 3000-node Func category can't crowd out
+// a 40-node Manifest category), and MAX_RENDER_NODES is an overall backstop
+// on top of that — the reference's GRAPH_NODES_PER_KIND=25 / MAX_RENDER_NODES
+// =300 pair, ported verbatim. The category watermark label (see build() below)
+// reports each category's TRUE total, never the drawn count — the cap is a
+// display budget, not a fact told to the user. Edges get their own, much
+// lower cap: every drawn synapse owns a dedicated <linearGradient> plus a
+// drop-shadow filter, and a map can carry tens of thousands of edges (56k on
+// triage) — without a tight cap the <defs> block alone would dwarf the rest
+// of the document.
+const MAX_NODES_PER_KIND = 25   // ui/lib/category-config.ts GRAPH_NODES_PER_KIND
+const MAX_RENDER_NODES = 300
+const MAX_RENDER_EDGES = 600
+
+// ── Deterministic radial placement ───────────────────────────────────────────
+// Placement is a pure function of (node qn, category) — never a force
+// simulation — so the SAME node lands in the SAME spot on every rebuild
+// (project switch, filter toggle, resize, browser refresh). A jittering graph
+// would fight the floating panels users just dragged into place next to a
+// node. hashStr/lcg give a stable pseudo-random offset per node without
+// pulling in a PRNG library; ported verbatim from ui/components/memory-graph.tsx.
+function hashStr(s) {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) >>> 0
+  return h
+}
+function lcg(seed) {
+  return ((seed * 1664525 + 1013904223) >>> 0) / 0x100000000
+}
+
+// itemSeeds distributes each node over a 2-D annular sector — the category's
+// own angular slice, at a radial band centered on the category's tier — so a
+// large category fills an AREA instead of piling onto a 1-D arc. (An earlier
+// version placed nodes along an arc indexed by position-within-category, which
+// reads fine at the reference app's cap of 25 nodes/category but degenerates
+// into a dense line — and every Voronoi cell into a wedge to the canvas edge —
+// once a category holds hundreds or thousands of nodes, as this graph's can.)
+// Both angle and radius are deterministic draws from the node's own qn hash,
+// never from its index, so placement is stable across rebuilds and doesn't
+// read as index-ordered striping.
+//
+// The two draws are hashes of two DIFFERENT strings (qn, qn+"#r") — NOT
+// lcg(h) paired with lcg(h + someOffset) from the SAME base hash. lcg() is
+// an affine (linear) map, so lcg(h + k) is provably just lcg(h) shifted by a
+// fixed constant (mod 1) for any fixed k — verified empirically: zero
+// deviation from that prediction across 20k samples. Two "draws" related by
+// a constant phase shift are not independent; they trace one smooth curve
+// through (angle, radius) space as the hash sweeps its range — a spiral
+// instead of an arc, but still a 1-D curve, still the same degeneracy this
+// function exists to fix. Hashing two different strings decorrelates them
+// (measured correlation ~0.02, vs. ~1.0 functional dependence for the
+// same-hash-offset approach).
+//
+// A node CONTAINED by another is not a peer of its category — it is part of one
+// specific entity. Seeding it into its own category arc scatters an entity's
+// parts across the canvas, where they read as unrelated duplicates of each
+// other, and the edges that would explain them are dropped by the synapse
+// length filter for being long. Such a node is therefore seeded as a satellite
+// of its parent instead: same deterministic hash draws, but around the parent's
+// point rather than the canvas centre. Category colour is untouched, so the
+// legend still says what each cell is.
+function itemSeeds(nodes, width, height, parentOf) {
+  const cx = width / 2, cy = height / 2
+  const maxR = Math.min(width, height) * 0.46
+  const arcSlice = TAU / 8   // one category's angular sector (8 categories)
+  const bandHalf = 0.12      // radial band half-width, in tier units
+  const satR = Math.min(width, height) * 0.035   // satellite orbit radius
+
+  const base = new Map()     // qn -> [x, y] for every node placed in its arc
+  const place = (n) => {
+    const cat = categoryOf(n.kind)
+    const v = lcg(hashStr(n.qn))          // angle draw
+    const u = lcg(hashStr(n.qn + "#r"))   // radius draw — independently-hashed string
+
+    const angle = cat.angle + (v - 0.5) * arcSlice * 0.9
+
+    // Area-weighted radius: for a uniform-density annulus from rIn to rOut,
+    // r = sqrt(rIn² + u·(rOut² - rIn²)). A plain lerp(rIn, rOut, u) would
+    // over-concentrate points near the inner edge, since equal radius steps
+    // near the center sweep far less area than equal steps near the rim.
+    const tierLo = Math.max(0, cat.tier - bandHalf)
+    const tierHi = Math.min(1, cat.tier + bandHalf)
+    const rIn = maxR * tierLo, rOut = maxR * tierHi
+    const r = Math.sqrt(rIn * rIn + u * (rOut * rOut - rIn * rIn))
+
+    return [
+      Math.max(8, Math.min(width - 8, cx + Math.cos(angle) * r)),
+      Math.max(8, Math.min(height - 8, cy + Math.sin(angle) * r)),
+    ]
+  }
+
+  for (const n of nodes) base.set(n.qn, place(n))
+
+  return nodes.map((n) => {
+    const parent = parentOf && parentOf.get(n.qn)
+    const anchor = parent && base.get(parent)
+    if (!anchor) return base.get(n.qn)
+    // Ring the parent, deterministically, so siblings spread instead of stacking.
+    const a = lcg(hashStr(n.qn + "#sat")) * TAU
+    const d = satR * (0.55 + 0.45 * lcg(hashStr(n.qn + "#satr")))
+    return [
+      Math.max(8, Math.min(width - 8, anchor[0] + Math.cos(a) * d)),
+      Math.max(8, Math.min(height - 8, anchor[1] + Math.sin(a) * d)),
+    ]
+  })
+}
+
+// nodeRadius scales a dot by its (filtered) degree, clamped to a small range —
+// degree is real signal in a code graph (a hub function vs. a leaf), unlike the
+// reference's fixed r=5 (memory cells have no comparable "degree").
+function nodeRadius(degree) {
+  return Math.max(3, Math.min(9, 3 + Math.sqrt(degree) * 1.3))
+}
+
+// Edge draw weight by relation kind — stands in for the reference's "shared
+// tag count" (which doesn't exist here; these are real graph edges, not
+// inferred ones). Stronger structural relations (inherits/implements) read a
+// little brighter than routine ones (contains/references).
+const EDGE_WEIGHT = { inherits: 0.32, implements: 0.30, calls: 0.20, imports: 0.16, references: 0.14, contains: 0.10 }
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let DUMP = { nodes: [], edges: [] }
+let filter = "all"   // kept as the single, unrestricted kind filter: the All/Docs/Code toggle is gone, but every search path still asks what the filter is
+let searchQuery = ""
+let zoomB = null
+// Viewport size at the last build — a change means the layout was re-seeded,
+// so the kept pan/zoom no longer describes the drawing (see build()).
+let lastBuildW = 0
+let lastBuildH = 0
+
+// Server search state (real hybrid retrieval — index.Index.Search: HNSW
+// semantic channel + trigram lexical channel, fused by RRF — reached via
+// searchGraph() below). serverHits is the last successful ranked reply
+// (empty when no query, or when a request is in flight/failed and the last
+// GOOD render is being kept); serverHitRank maps qn -> its rank (0 = best) so
+// build() can both union hits outside the local preview into the drawn set
+// AND render rank as a visible glow, strongest at rank 0.
+let serverHits = []
+let serverHitRank = new Map()
+let searchError = null
+let searchPending = false
+
+const svg = d3.select("#svg")
+const statusEl = document.getElementById("status")
+const tipEl = document.getElementById("tip")
+const hudGraphEl = document.getElementById("hudGraph")
+const hudSearchEl = document.getElementById("hudSearch")
+const searchStatusEl = document.getElementById("searchStatus")
+
+// nodeMatchesQuery is the LOCAL substring predicate — used to pick which
+// already-loaded nodes join the drawn set as a supplement to the ranked server
+// hits (Step 3 in build()), and as the highlight test for any drawn node that
+// isn't itself a ranked hit. It intentionally does NOT gate what search can
+// find any more — serverHits (from the real hybrid search) is the authority
+// for that; a semantic/lexical match can hit a node whose title/qn never
+// contains the query text at all.
+function nodeMatchesQuery(n, q) {
+  return (n.title || "").toLowerCase().includes(q) || n.qn.toLowerCase().includes(q)
+}
+
+// hitToNode adapts a /search (or search_graph/search_graph_docs) ranked hit
+// into the same shape DUMP.nodes carries (qn, title, kind, file, line, repo),
+// so a hit that lives outside the currently drawn preview — or outside
+// DUMP.nodes entirely, when semantic routing answers from another project —
+// can still be pushed straight into the same render pipeline as a local node.
+// degree is unknown for a node we haven't loaded locally, so it draws as an
+// unconnected point (0 synapses) rather than a guessed size.
+function hitToNode(h) {
+  return { qn: h.qn, title: h.title || "", kind: h.kind, file: h.file, line: h.line, repo: h.repo, degree: 0 }
+}
+
+function build() {
+  if (!DUMP.nodes.length) return
+  const W = document.getElementById("app").clientWidth || 800
+  const H = document.getElementById("app").clientHeight || 600
+  const q = searchQuery.trim().toLowerCase()
+
+  // Step 1 — apply the All/Docs/Code kind filter and compute degree over the
+  // resulting edge set (both endpoints must pass the filter). This degree
+  // drives node-cap priority, dot radius, AND edge-cap priority below, so
+  // there is one definition of "important" throughout.
+  const keepKind = new Set(DUMP.nodes.filter(n => passesFilter(n.kind, filter)).map(n => n.qn))
+  const degree = new Map()
+  const filteredEdges = []
+  for (const e of (DUMP.edges || [])) {
+    if (!keepKind.has(e.source) || !keepKind.has(e.target)) continue
+    filteredEdges.push(e)
+    degree.set(e.source, (degree.get(e.source) || 0) + 1)
+    degree.set(e.target, (degree.get(e.target) || 0) + 1)
+  }
+  const filteredNodes = DUMP.nodes.filter(n => keepKind.has(n.qn)).map(n => ({ ...n, degree: degree.get(n.qn) || 0 }))
+
+  // Category totals over the WHOLE (post-kind-filter, pre-cap) node list —
+  // the watermark label and HUD report THIS, never the drawn count, so a
+  // 1200-node category still reads "1213 items" even though only a bounded
+  // preview of it is actually drawn (Step 2 below).
+  const catTotals = {}
+  for (const n of filteredNodes) {
+    const k = categoryOf(n.kind).id
+    catTotals[k] = (catTotals[k] || 0) + 1
+  }
+  const byCatFiltered = new Map()
+  for (const n of filteredNodes) {
+    const k = categoryOf(n.kind).id
+    if (!byCatFiltered.has(k)) byCatFiltered.set(k, [])
+    byCatFiltered.get(k).push(n)
+  }
+  // capPerCategory: at most MAX_NODES_PER_KIND per category, highest degree
+  // first — used both for the preview (Step 2) and for search matches
+  // (Step 3), so a broad query can't let one category's matches crowd out
+  // every other category's, same fairness the reference gets from its
+  // server-side `fetchMemorySearch(query, 300, GRAPH_NODES_PER_KIND)` call.
+  // The per-category cap only exists to arbitrate between categories competing
+  // for a budget. A map whose whole (kind-filtered) node set fits inside
+  // MAX_RENDER_NODES is not competing for anything, so capping it there hides
+  // most of a small graph for no gain: a 148-node map drew 50. Below the
+  // backstop, draw everything.
+  const fitsWhole = filteredNodes.length <= MAX_RENDER_NODES
+  const capPerCategory = (arr) => (fitsWhole || arr.length <= MAX_NODES_PER_KIND)
+    ? arr
+    : [...arr].sort((a, b) => b.degree - a.degree).slice(0, MAX_NODES_PER_KIND)
+
+  // Step 2 — bounded PREVIEW: MAX_NODES_PER_KIND per category, then
+  // MAX_RENDER_NODES as an overall backstop. This is a DISPLAY budget only —
+  // it never scopes search (Step 3 draws from filteredNodes directly).
+  let previewNodes = []
+  for (const arr of byCatFiltered.values()) previewNodes.push(...capPerCategory(arr))
+
+  // Step 3 — search match union. Two sources, both unioned into the drawn set
+  // even when capped out of the preview above:
+  //   (a) serverHits — the REAL hybrid search (searchGraph(): HNSW semantic +
+  //       trigram lexical, fused by RRF), which answers over the FULL store,
+  //       not just what happens to be loaded client-side. This is what lets a
+  //       hit outside the preview — or a query phrased nothing like the
+  //       node's own text — actually surface.
+  //   (b) local substring matches over filteredNodes (the full kind-filtered
+  //       CLIENT-side store) — kept as a supplement so an exact-text match
+  //       already sitting in the loaded graph is never dropped even if the
+  //       server-side limit didn't return it.
+  // A client-side filter over the preview ALONE (the old nodeMatchesQuery-only
+  // design) would silently scope search to whatever handful of nodes happened
+  // to already be on screen — serverHits is what fixes that.
+  let drawnNodes
+  if (q) {
+    const matchesByCat = new Map()
+    for (const n of filteredNodes) {
+      if (!nodeMatchesQuery(n, q)) continue
+      const k = categoryOf(n.kind).id
+      if (!matchesByCat.has(k)) matchesByCat.set(k, [])
+      matchesByCat.get(k).push(n)
+    }
+    const byQn = new Map()
+    for (const n of previewNodes) byQn.set(n.qn, n)
+    for (const arr of matchesByCat.values()) for (const n of capPerCategory(arr)) byQn.set(n.qn, n)
+    // Server hits go in last and only fill gaps (byQn.has check) — an already
+    // -loaded node keeps its full local data (content-bearing fields the hit
+    // pointer doesn't carry); only a qn with no local copy gets the synthetic
+    // hitToNode stand-in. Respects the current kind filter for symmetry with
+    // the local matches above, even though the server call already requested
+    // this filter's kinds.
+    for (const h of serverHits) {
+      if (!passesFilter(h.kind, filter)) continue
+      if (!byQn.has(h.qn)) byQn.set(h.qn, hitToNode(h))
+    }
+    drawnNodes = Array.from(byQn.values())
+  } else {
+    drawnNodes = previewNodes
+  }
+  if (drawnNodes.length > MAX_RENDER_NODES) {
+    // Ranked server hits must survive this backstop too (drawn but capped-out
+    // is the same "search silently missed it" failure a preview-only union
+    // would cause), so during an active search they sort ahead of everything
+    // by rank first; degree is only the tiebreaker/fallback, and the only
+    // comparator at all outside a search.
+    drawnNodes = [...drawnNodes].sort((a, b) => {
+      if (q && serverHitRank.size) {
+        const ra = serverHitRank.has(a.qn) ? serverHitRank.get(a.qn) : Infinity
+        const rb = serverHitRank.has(b.qn) ? serverHitRank.get(b.qn) : Infinity
+        if (ra !== rb) return ra - rb
+      }
+      return b.degree - a.degree
+    }).slice(0, MAX_RENDER_NODES)
+  }
+
+  // Carry the viewer's pan/zoom across the rebuild. Every render wipes the SVG
+  // and installs a fresh d3.zoom behaviour, so without this the canvas snapped
+  // back to identity — zooming itself out from under the user — on a filter
+  // toggle, a search, or a cleared search. Placement is deterministic (see
+  // itemSeeds), so the same transform frames the same content; it is re-applied
+  // to the new zoom behaviour below.
+  //
+  // A viewport RESIZE is the exception: the layout is re-seeded to the new W/H,
+  // so an old transform would map the fresh full-size drawing into a shrunken
+  // sub-box with the viewport-relative fade mask no longer around it. There the
+  // rebuild starts from identity, which is what fills the new viewport.
+  const sizeChanged = W !== lastBuildW || H !== lastBuildH
+  lastBuildW = W; lastBuildH = H
+  const prev = d3.zoomTransform(svg.node())
+  const keptTransform = sizeChanged || prev.k < 1 ? d3.zoomIdentity : prev
+
+  svg.selectAll("*").remove()
+  svg.node().__zoom = d3.zoomIdentity
+
+  const defs = svg.append("defs")
+
+  // Radial fade gradients + mask — the SVG-side half of the edge fade (see the
+  // .fade-overlay CSS div for the other half). The mask sits on a group OUTSIDE
+  // the zoom transform (see zoomG below) so panning/zooming the graph never
+  // drags the fade edges along with it — the mask always fades relative to the
+  // viewport, not the content.
+  const gradDefs = [
+    { id: "fade-l", x1: "0%", y1: "0%", x2: "100%", y2: "0%" },
+    { id: "fade-r", x1: "100%", y1: "0%", x2: "0%", y2: "0%" },
+    { id: "fade-t", x1: "0%", y1: "0%", x2: "0%", y2: "100%" },
+    { id: "fade-b", x1: "0%", y1: "100%", x2: "0%", y2: "0%" },
+  ]
+  gradDefs.forEach(({ id, x1, y1, x2, y2 }) => {
+    const g = defs.append("linearGradient").attr("id", id).attr("x1", x1).attr("y1", y1).attr("x2", x2).attr("y2", y2)
+    g.append("stop").attr("offset", "0%").attr("stop-color", "black").attr("stop-opacity", 1)
+    g.append("stop").attr("offset", "22%").attr("stop-color", "black").attr("stop-opacity", 0)
+    g.append("stop").attr("offset", "100%").attr("stop-color", "black").attr("stop-opacity", 0)
+  })
+  const mask = defs.append("mask").attr("id", "rmask")
+  mask.append("rect").attr("width", W).attr("height", H).attr("fill", "white")
+  ;["fade-l", "fade-r", "fade-t", "fade-b"].forEach(id => {
+    mask.append("rect").attr("width", W).attr("height", H).attr("fill", `url(#${id})`).attr("fill-opacity", 1).style("mix-blend-mode", "multiply")
+  })
+
+  const maskedRoot = svg.append("g").attr("mask", "url(#rmask)")
+  // zoomG holds everything that pans/zooms; the mask lives on its (untransformed)
+  // parent so the fade stays viewport-relative. Zoom/pan isn't in the reference
+  // app (a 300-node preview never needs it) but this graph can carry thousands
+  // of nodes, where being able to zoom into a dense cluster is the difference
+  // between usable and not.
+  const zoomG = maskedRoot.append("g")
+  // Zoom IN only, and never past the edges of the drawing. The layout fills
+  // [0,0,W,H] exactly, so k < 1 would shrink it into a floating box on black
+  // with the viewport-relative fade mask stranded around it, and an
+  // unconstrained pan would do the same at k = 1. Pinning scaleExtent to a
+  // floor of 1 and handing d3 both rectangles (extent = viewport,
+  // translateExtent = the drawing) makes the canvas always cover the viewport —
+  // the reference app (ui/components/memory-graph.tsx) gets this for free by
+  // having no zoom at all; this graph needs the zoom, so it needs the clamp.
+  zoomB = d3.zoom().scaleExtent([1, 8])
+    .extent([[0, 0], [W, H]])
+    .translateExtent([[0, 0], [W, H]])
+    .on("zoom", (e) => zoomG.attr("transform", e.transform))
+  svg.call(zoomB)
+  // Restore the pre-rebuild view. Going through zoomB.transform (not a bare
+  // attr) keeps the behaviour's own state in step, so the next wheel/drag
+  // continues from where the user left off instead of jumping.
+  svg.call(zoomB.transform, keptTransform)
+
+  if (drawnNodes.length === 0) {
+    updateHud({ drawnNodes: 0, totalNodes: filteredNodes.length, drawnEdges: 0, totalEdges: filteredEdges.length, byCategory: {}, catTotals })
+    return
+  }
+
+  // Parent lookup for satellite seeding: a `contains` edge means the target is
+  // part of the source, so the target is drawn beside it rather than in its own
+  // category arc. Built from the drawn set, so a part whose parent is not on
+  // screen falls back to its arc.
+  const drawnQNs = new Set(drawnNodes.map(n => n.qn))
+  const parentOf = new Map()
+  for (const e of filteredEdges) {
+    if (e.kind !== "contains") continue
+    if (!drawnQNs.has(e.source) || !drawnQNs.has(e.target)) continue
+    if (!parentOf.has(e.target)) parentOf.set(e.target, e.source)
+  }
+  const points = itemSeeds(drawnNodes, W, H, parentOf)
+  const delaunay = d3.Delaunay.from(points)
+  const voronoi = delaunay.voronoi([0, 0, W, H])
+
+  // ── Voronoi cells — the click/hover surface. Each cell is colored by its
+  // node's category; a Voronoi cell gives even a 3px dot a large, easy-to-hit
+  // click target (the whole point of using Voronoi over plain circles here).
+  const cellsG = zoomG.append("g")
+  const cellSel = cellsG.selectAll("path")
+    .data(drawnNodes)
+    .join("path")
+    .attr("d", (d, i) => voronoi.renderCell(i) || "")
+    .attr("fill", d => categoryOf(d.kind).color)
+    .attr("fill-opacity", 0.28)
+    .attr("data-cat", d => categoryOf(d.kind).id)
+    .attr("stroke", "rgba(255,255,255,0.22)")
+    .attr("stroke-width", 1)
+    .attr("cursor", "pointer")
+    .on("mouseenter", function (ev, d) {
+      d3.select(this).attr("fill-opacity", 0.72).attr("stroke", "rgba(255,255,255,0.6)")
+      showTip(ev, d)
+    })
+    .on("mousemove", (ev) => moveTip(ev))
+    .on("mouseleave", function () {
+      d3.select(this).attr("fill-opacity", 0.28).attr("stroke", "rgba(255,255,255,0.22)")
+      hideTip()
+    })
+    .on("click", (ev, d) => { ev.stopPropagation(); hideTip(); onNodeClick(d, ev.clientX, ev.clientY) })
+
+  // A search query dims non-matching cells and highlights matches — a match is
+  // either a ranked server hit (serverHitRank) or a local substring match
+  // (nodeMatchesQuery), since Step 3 unioned both into the drawn set.
+  if (q) {
+    const isMatch = d => serverHitRank.has(d.qn) || nodeMatchesQuery(d, q)
+    cellSel.attr("opacity", d => isMatch(d) ? 1 : 0.10)
+      .attr("stroke", d => isMatch(d) ? "#fff" : "rgba(255,255,255,0.22)")
+      .attr("stroke-width", d => isMatch(d) ? 2 : 1)
+
+    // Make the RANKING visible: a ranked hit gets an additional glow on top of
+    // the plain highlight above, strongest at rank 0 and fading out by ~rank
+    // 12, in the hit's own category color — the same colored-drop-shadow-on-
+    // the-matched-cell idiom the reference app uses for a fresh SSE hit
+    // (memory-graph.tsx's highlightIds effect). This is what makes "found by
+    // real search, ranked near the top" read differently from "merely
+    // contains these letters" (a plain local substring match, unglowed).
+    if (serverHitRank.size) {
+      cellSel.each(function (d) {
+        const rank = serverHitRank.get(d.qn)
+        if (rank === undefined) return
+        const color = categoryOf(d.kind).color
+        const strength = Math.max(0.2, 1 - rank / 12)
+        d3.select(this)
+          .attr("stroke-width", 2 + strength * 2)
+          .attr("filter", `drop-shadow(0 0 ${6 + strength * 10}px ${color}cc)`)
+      })
+    }
+  }
+
+  // ── Category watermark labels — one per category, centered on the bounding
+  // box of that category's cell polygons (clamped to the canvas so an
+  // off-screen outlier can't blow the box out). Outside of a search, the
+  // printed count is that category's TRUE total (catTotals, computed above
+  // from the full filtered store before the preview cap) — not the drawn
+  // count, so a 1200-node category still reads "1213 items" while only a
+  // bounded sample of it is actually drawn. During a search there is no
+  // well-defined "true total" for a match subset, so it falls back to the
+  // drawn/matched count, same as the reference.
+  const catGroups = {}
+  drawnNodes.forEach((n, i) => { (catGroups[categoryOf(n.kind).id] ??= { cat: categoryOf(n.kind), indices: [] }).indices.push(i) })
+  const labelsG = zoomG.append("g")
+  const byCategory = {}
+  for (const { cat, indices } of Object.values(catGroups)) {
+    byCategory[cat.id] = indices.length
+    const pad = 24
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    for (const idx of indices) {
+      const poly = voronoi.cellPolygon(idx)
+      if (!poly) continue
+      for (const [vx, vy] of poly) {
+        const cx2 = Math.max(pad, Math.min(W - pad, vx))
+        const cy2 = Math.max(pad, Math.min(H - pad, vy))
+        if (cx2 < minX) minX = cx2
+        if (cx2 > maxX) maxX = cx2
+        if (cy2 < minY) minY = cy2
+        if (cy2 > maxY) maxY = cy2
+      }
+    }
+    if (!isFinite(minX)) continue
+    const lx = (minX + maxX) / 2, ly = (minY + maxY) / 2
+    const regionW = maxX - minX, regionH = maxY - minY
+    const label = cat.label.toUpperCase()
+    const trueCount = q ? indices.length : (catTotals[cat.id] ?? indices.length)
+    // Font-fit: shrink to the narrower of "fits the region width" and "fits
+    // 35% of the region height", clamped to a sane min/max so a tiny or huge
+    // category never renders illegibly small or comically oversized.
+    const charW = 0.6
+    const fitsW = regionW / (label.length * charW * 1.15)
+    const fitsH = regionH * 0.35
+    const fontSize = Math.max(28, Math.min(120, Math.min(fitsW, fitsH)))
+    const labelG = labelsG.append("g").attr("data-label-cat", cat.id)
+    labelG.append("text")
+      .attr("x", lx).attr("y", ly)
+      .attr("text-anchor", "middle").attr("dominant-baseline", "middle")
+      .attr("font-size", fontSize).attr("font-weight", "900").attr("letter-spacing", "0.10em")
+      .attr("fill", cat.color).attr("fill-opacity", 0.05)
+      .attr("stroke", cat.color).attr("stroke-opacity", 0.28).attr("stroke-width", 1)
+      .attr("pointer-events", "none")
+      .text(label)
+    labelG.append("text")
+      .attr("x", lx).attr("y", ly + fontSize * 0.65)
+      .attr("text-anchor", "middle").attr("dominant-baseline", "middle")
+      .attr("font-size", Math.max(13, fontSize * 0.20)).attr("font-weight", "700").attr("letter-spacing", "0.08em")
+      .attr("fill", cat.color).attr("fill-opacity", 0.55)
+      .attr("pointer-events", "none")
+      .text(`${trueCount} ${trueCount === 1 ? "item" : "items"}`)
+  }
+
+  // ── Synapses — the REAL graph edges (the reference fakes these from shared
+  // tags because memory cells have no edges; code nodes do, so draw those).
+  // Same visual treatment: a gradient from source-category color to
+  // target-category color, thin, faint. Length-filtered first (very long
+  // cross-graph lines are visual noise, exactly as in the reference), then
+  // capped by combined endpoint degree — the edges most likely to matter.
+  const qnToIndex = new Map(drawnNodes.map((n, i) => [n.qn, i]))
+  const candidateEdges = filteredEdges.filter(e => {
+    if (e.source === e.target) return false
+    const i = qnToIndex.get(e.source), j = qnToIndex.get(e.target)
+    if (i === undefined || j === undefined) return false
+    const [x1, y1] = points[i], [x2, y2] = points[j]
+    return Math.hypot(x2 - x1, y2 - y1) <= Math.min(W, H) * 0.55
+  })
+  const drawnEdges = candidateEdges.length <= MAX_RENDER_EDGES
+    ? candidateEdges
+    : [...candidateEdges]
+        .sort((a, b) => ((degree.get(b.source) || 0) + (degree.get(b.target) || 0)) - ((degree.get(a.source) || 0) + (degree.get(a.target) || 0)))
+        .slice(0, MAX_RENDER_EDGES)
+
+  const synapseG = zoomG.append("g").attr("pointer-events", "none")
+  for (const e of drawnEdges) {
+    const i = qnToIndex.get(e.source), j = qnToIndex.get(e.target)
+    const [x1, y1] = points[i], [x2, y2] = points[j]
+    const colorI = categoryOf(drawnNodes[i].kind).color
+    const colorJ = categoryOf(drawnNodes[j].kind).color
+    const gradId = `syn-${i}-${j}`
+    const grad = defs.append("linearGradient").attr("id", gradId)
+      .attr("x1", x1).attr("y1", y1).attr("x2", x2).attr("y2", y2).attr("gradientUnits", "userSpaceOnUse")
+    grad.append("stop").attr("offset", "0%").attr("stop-color", colorI)
+    grad.append("stop").attr("offset", "100%").attr("stop-color", colorJ)
+    const weight = EDGE_WEIGHT[e.kind] ?? 0.16
+    synapseG.append("line")
+      .attr("x1", x1).attr("y1", y1).attr("x2", x2).attr("y2", y2)
+      .attr("stroke", `url(#${gradId})`)
+      .attr("stroke-width", 1 + weight)
+      .attr("stroke-opacity", weight)
+      .attr("filter", `drop-shadow(0 0 3px ${colorI}66)`)
+  }
+
+  // ── Node dots — pointer-events:none, the Voronoi cell underneath handles
+  // all interaction. Radius is degree-scaled (see nodeRadius).
+  const dotsG = zoomG.append("g").attr("pointer-events", "none")
+  const dotSel = dotsG.selectAll("circle")
+    .data(drawnNodes)
+    .join("circle")
+    .attr("cx", (d, i) => points[i][0]).attr("cy", (d, i) => points[i][1])
+    .attr("r", d => nodeRadius(d.degree))
+    .attr("fill", d => categoryOf(d.kind).color).attr("fill-opacity", 0.35)
+    .attr("stroke", d => categoryOf(d.kind).color).attr("stroke-width", 1.5)
+
+  window.__dotSel = dotSel
+  window.__cellSel = cellSel
+  window.__drawnNodes = drawnNodes
+  window.__points = points
+
+  updateHud({
+    drawnNodes: drawnNodes.length, totalNodes: filteredNodes.length,
+    drawnEdges: drawnEdges.length, totalEdges: filteredEdges.length,
+    byCategory, catTotals,
+  })
+}
+
+function lensActive() { return hudEl.classList.contains("lens-active") }
+
+function showTip(ev, d) {
+  // Reading the stats HUD means the pointer sits over cells it never aimed at
+  // (#hud is pointer-events:none, so the hover lands on the graph beneath it).
+  // Suppress the hint there rather than letting it cover the magnified rows.
+  if (lensActive()) { hideTip(); return }
+  const cat = categoryOf(d.kind)
+  tipEl.style.display = "block"
+  moveTip(ev)
+  tipEl.innerHTML =
+    `<div class="t">${esc(shortLabel(d))}</div>` +
+    `<div class="k" style="color:${cat.color}">${esc(cat.label)}${d.lang ? ' · ' + esc(d.lang) : ''}</div>` +
+    `<div class="m">${esc(d.file)}:${d.line}</div>` +
+    `<div class="m">${d.degree} connection${d.degree === 1 ? '' : 's'}${d.repo ? ' · ' + esc(d.repo) : ''}</div>`
+}
+function moveTip(ev) {
+  // A tip that was already up when the pointer reached the HUD gets no mouseout
+  // to close it — the pointer is still over that cell, the HUD being
+  // pointer-events:none — so the showTip guard alone leaves it hanging over the
+  // magnified rows, tracking the pointer.
+  if (lensActive()) { hideTip(); return }
+  const rect = document.getElementById("app").getBoundingClientRect()
+  tipEl.style.left = (ev.clientX - rect.left + 14) + "px"
+  tipEl.style.top = (ev.clientY - rect.top - 10) + "px"
+}
+function hideTip() { tipEl.style.display = "none" }
+
+// buildVersion is the server's stamped build version, shown in the HUD so a
+// running instance is identifiable at a glance. Fetched once at boot; the empty
+// default renders as "—" rather than blocking the first paint. In a host there
+// is no HTTP origin to fetch against, so it simply stays empty.
+let buildVersion = ""
+async function loadVersion() {
+  if (inHost) return
+  try {
+    const r = await fetch("./version")  // browser mode — /ui sits next to /version
+    if (r.ok) buildVersion = (await r.json()).version || ""
+  } catch { /* leave empty; the HUD shows "—" */ }
+}
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+// Every count is rendered "drawn / total" so it's always obvious this is a
+// bounded preview, not the whole graph — both overall and per category.
+function updateHud(counts) {
+  const rows = [
+    ["nodes (preview)", `${counts.drawnNodes} / ${counts.totalNodes}`],
+    ["edges (preview)", `${counts.drawnEdges} / ${counts.totalEdges}`],
+  ]
+  const catTotals = counts.catTotals || {}
+  for (const c of allCategories()) {
+    const total = catTotals[c.id] || 0
+    const drawn = (counts.byCategory && counts.byCategory[c.id]) || 0
+    if (total > 0 || drawn > 0) rows.push([c.label.toLowerCase(), `${drawn} / ${total}`])
+  }
+  rows.push(["project", proj() || "(default)"])
+  rows.push(["version", buildVersion || "—"])
+  hudGraphEl.innerHTML = rows.map(([l, v]) => `<div><span class="label">${esc(l)} </span><span>${esc(String(v))}</span></div>`).join("")
+}
+
+// ── Search-quality metrics ───────────────────────────────────────────────────
+// fetchMetrics is the dual-path entry point for the retrieval-quality block
+// reg.Metrics() computes (internal/memmaps/engine/registry.go): hybrid-search
+// counters, routing outcomes, per-map search/hit totals, map load/eviction
+// counts, and query-embed cache stats — same idiom as loadGraph/searchGraph:
+// try the MCP bridge tool first, fall back to the HTTP endpoint. get_graph_stats
+// carries the identical numbers under a reserved "_metrics" key (so the two
+// surfaces can never drift — see registry.go's own comment on Metrics()),
+// which is what makes this reachable from the MCP-App host path too, where
+// there is no HTTP origin to fetch() against.
+//
+// Unlike loadGraph, a failure here resolves to null rather than throwing — an
+// unreachable /metrics (older server binary) or an MCP host with no bridge
+// support for this tool means "search metrics are not available", which
+// renderSearchHud renders as an absent block, never as an error or a row of
+// zeroes (a zeroed reading reads as "search is broken", which is worse than no
+// reading at all).
+//
+// When inHost and a project is selected, it's passed as `map` so the bridge
+// call takes get_graph_stats' exact-label fast path (Resolve's explicit-route
+// branch) instead of falling through to semantic routing on an empty query —
+// the latter still embeds cheaply (cached after the first identical call) but
+// also increments routing.semanticRoutes on every single poll tick, which
+// would otherwise inflate the very "explicit vs semantic routes" counter this
+// HUD exists to show truthfully. No such wart exists on the /metrics HTTP
+// path (browser mode): it reads counters directly and never calls Resolve. A
+// project-less MCP host session still takes the semantic branch once per poll
+// — there is no get_graph_stats argument that means "just the process
+// metrics, no map resolution" — but that is the pre-existing tool contract,
+// not something this file can change.
+async function fetchMetrics() {
+  if (inHost) {
+    try {
+      const p = proj()
+      const j = resultJSON(await callTool("get_graph_stats", p ? { map: p } : {}))
+      if (j && j._metrics) return j._metrics
+    } catch (e) { console.warn("callTool(get_graph_stats) failed:", e) }
+  }
+  try {
+    const r = await fetch("./metrics")  // browser mode — /ui sits next to /metrics, same as /graph
+    if (!r.ok) return null
+    return await r.json()
+  } catch (e) { return null }
+}
+
+// msFrom/pct convert the raw microsecond/count fields the server returns into
+// the units this HUD displays, once, here — rather than asking the server to
+// carry a second unit for the same number.
+function msFrom(us) { return ((us || 0) / 1000).toFixed(1) + "ms" }
+function pct(n, d) { return d > 0 ? ((n / d) * 100).toFixed(1) + "%" : "0.0%" }
+
+// renderSearchHud renders EVERY field /metrics returns — no priority subset,
+// no omission of a zero value. A zero is a finding here ("keyword promotions:
+// 0" means the lexical channel contributed nothing this session), not visual
+// noise to hide; the whole block is omitted only when m is null (metrics
+// genuinely unavailable — see fetchMetrics).
+function renderSearchHud(m) {
+  if (!m) { hudSearchEl.innerHTML = ""; return }
+  const s = m.search || {}
+  const lat = s.latency || {}
+  const routing = m.routing || {}
+  const embed = m.embed || {}
+  const maps = m.maps || {}
+
+  // keywordPromotions/semanticOnlyHits/bothChannelHits partition the returned
+  // top-k hits exactly (index/stats.go's recordFusion), so this sum is a
+  // sound denominator for the promotion share.
+  const promoTotal = (s.keywordPromotions || 0) + (s.semanticOnlyHits || 0) + (s.bothChannelHits || 0)
+  const embedTotal = (embed.cacheHits || 0) + (embed.embedCalls || 0)
+
+  const rows = [
+    ["searches", s.searches ?? 0],
+    ["semantic calls", s.semanticCalls ?? 0],
+    ["keyword promotions", s.keywordPromotions ?? 0],
+    ["kw promotion share", pct(s.keywordPromotions || 0, promoTotal)],
+    ["semantic-only hits", s.semanticOnlyHits ?? 0],
+    ["both-channel hits", s.bothChannelHits ?? 0],
+    ["lexical abstentions", s.lexicalAbstentions ?? 0],
+    ["coverage rejections", s.coverageRejections ?? 0],
+    ["latency samples", lat.count ?? 0],
+    ["avg total lat", msFrom(lat.avgTotalUs)],
+    ["max total lat", msFrom(lat.maxTotalUs)],
+    ["avg embed lat", msFrom(lat.avgEmbedUs)],
+    ["max embed lat", msFrom(lat.maxEmbedUs)],
+    ["avg index lat", msFrom(lat.avgIndexUs)],
+    ["max index lat", msFrom(lat.maxIndexUs)],
+    ["explicit routes", routing.explicitRoutes ?? 0],
+    ["semantic routes", routing.semanticRoutes ?? 0],
+    ["avg fanout", (routing.avgFanoutConsulted ?? 0).toFixed(2)],
+    ["embed calls", embed.embedCalls ?? 0],
+    ["embed cache hits", embed.cacheHits ?? 0],
+    ["embed cache rate", pct(embed.cacheHits || 0, embedTotal)],
+    ["map loads", m.mapLoads ?? 0],
+    ["map evictions", m.mapEvictions ?? 0],
+  ]
+  for (const label of Object.keys(maps).sort()) {
+    const c = maps[label] || {}
+    rows.push(["map " + label, `${c.searches ?? 0} searches · ${c.hits ?? 0} hits`])
+  }
+
+  hudSearchEl.innerHTML =
+    `<div class="heading">search</div>` +
+    rows.map(([l, v]) => `<div><span class="label">${esc(l)} </span><span>${esc(String(v))}</span></div>`).join("")
+}
+
+// refreshMetrics drives one fetch+render cycle. Called on the 5s poll timer
+// (boot()) AND immediately after a search completes (runSearch) — the latter
+// is what lets a just-typed query's own contribution to keywordPromotions/
+// latency/etc. show up without waiting for the next tick.
+async function refreshMetrics() {
+  renderSearchHud(await fetchMetrics())
+}
+
+// ── HUD proximity lens ───────────────────────────────────────────────────────
+// #hud is pointer-events:none over its entire area (see the CSS block) so a
+// click always reaches the graph underneath, even where HUD text overlaps it
+// — the resting wash is intentionally almost unreadable at 1x. That rules out
+// :hover for the dock-style magnifier this HUD needs: an element with
+// pointer-events:none never receives the pointer, so it can never match
+// :hover in the first place. Distance from the (window-level) pointer
+// position to each row is the only signal left, so that's what drives it.
+//
+// One mousemove listener drives every row; the actual DOM writes are deferred
+// to a single rAF callback (coalescing any number of mousemove events per
+// frame down to one layout pass) so a fast mouse can't schedule more style
+// recalcs than the display can show anyway.
+const hudEl = document.getElementById("hud")
+let hudPointerX = -1
+let hudPointerY = -1
+let hudLensRAF = null
+
+const HUD_LENS_REACH_X = 260   // px to the left of #hud that still counts as "near" it
+const HUD_LENS_REACH_Y = 70    // px of vertical pull each row gets, dock-style
+const HUD_LENS_PEAK_SCALE = 1.9
+const HUD_LENS_BASE_OPACITY = 0.3 // floor so an unfocused row settles back near the resting wash, not at full lens-active brightness
+
+// Cubic smoothstep, not a linear cone: a linear falloff makes the hovered row
+// pop in isolation, while t*t*(3-2t) keeps its immediate neighbours lifted
+// too, so the whole thing reads as a lens sliding over a small group of rows
+// (the macOS dock effect) rather than one line blinking on.
+function hudSmoothstep(t) { return t * t * (3 - 2 * t) }
+
+function hudLensClear() {
+  hudEl.classList.remove("lens-active")
+  // Rows are re-rendered via innerHTML on every stats refresh (updateHud /
+  // renderSearchHud), so any element reference taken before "now" may already
+  // be detached — query fresh instead of iterating a stored NodeList.
+  for (const row of document.querySelectorAll("#hudGraph > div, #hudSearch > div")) {
+    row.style.transform = ""
+    row.style.opacity = ""
+  }
+}
+
+function hudLensApply(x, y) {
+  // getBoundingClientRect is the one layout read allowed per frame; every
+  // row's own position below comes from offsetTop/offsetHeight instead, which
+  // (unlike getBoundingClientRect) ignore the CSS transform this same
+  // function applies to sibling rows, so reading N rows costs zero extra
+  // layout beyond this single container rect.
+  const rect = hudEl.getBoundingClientRect()
+  const near = x >= rect.left - HUD_LENS_REACH_X && x <= rect.right &&
+               y >= rect.top - HUD_LENS_REACH_Y && y <= rect.bottom + HUD_LENS_REACH_Y
+  if (!near) { hudLensClear(); return }
+
+  // Clear a standing tip the instant the lens engages, so it goes away even if
+  // the pointer then stops moving entirely.
+  if (!hudEl.classList.contains("lens-active")) hideTip()
+  hudEl.classList.add("lens-active")
+  for (const row of document.querySelectorAll("#hudGraph > div, #hudSearch > div")) {
+    const mid = rect.top + row.offsetTop + row.offsetHeight / 2
+    const d = Math.min(1, Math.abs(y - mid) / HUD_LENS_REACH_Y)
+    const t = hudSmoothstep(1 - d)
+    row.style.transform = t > 0.01 ? `scale(${(1 + t * (HUD_LENS_PEAK_SCALE - 1)).toFixed(3)})` : ""
+    row.style.opacity = (HUD_LENS_BASE_OPACITY + t * (1 - HUD_LENS_BASE_OPACITY)).toFixed(3)
+  }
+}
+
+window.addEventListener("mousemove", (ev) => {
+  hudPointerX = ev.clientX
+  hudPointerY = ev.clientY
+  if (hudLensRAF) return
+  hudLensRAF = requestAnimationFrame(() => {
+    hudLensRAF = null
+    hudLensApply(hudPointerX, hudPointerY)
+  })
+})
+// mouseleave on document (rather than #hud, which never sees the pointer at
+// all under pointer-events:none) is what catches the pointer leaving the
+// viewport entirely; blur catches it leaving the window via an alt-tab
+// without a corresponding mouse event.
+// The HUD rewrites its own rows (innerHTML) on every stats and metrics
+// refresh, which throws away the inline transforms the lens just wrote. Nothing
+// re-applies them until the pointer moves again — so the magnifier collapsed
+// under a STATIONARY pointer, i.e. exactly while someone was reading it.
+// Re-apply on the next frame after any such rewrite.
+const hudLensObserver = new MutationObserver(() => {
+  if (!hudEl.classList.contains("lens-active") || hudPointerX < 0 || hudLensRAF) return
+  hudLensRAF = requestAnimationFrame(() => {
+    hudLensRAF = null
+    hudLensApply(hudPointerX, hudPointerY)
+  })
+})
+hudLensObserver.observe(hudEl, { childList: true, subtree: true })
+
+document.addEventListener("mouseleave", hudLensClear)
+window.addEventListener("blur", hudLensClear)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Floating detail panels
+// ══════════════════════════════════════════════════════════════════════════════
+const PANEL_W = 380
+const PANEL_H_MAX = 520
+const SNAP_DIST = 20  // px within which a dragged panel snaps to a sibling's edge
+
+let activePanel = null       // the single unpinned panel, or null
+const pinnedPanels = new Map() // key -> panel state (persisted)
+let panelCounter = 0
+let topZ = 39 // panels start at z-index 40, above the toolbar(20)/tip(30)
+
+function anchorPos(clickX, clickY) {
+  const vw = window.innerWidth, vh = window.innerHeight
+  let x = clickX + 20, y = clickY - 60
+  if (x + PANEL_W > vw - 16) x = clickX - PANEL_W - 20
+  if (x < 16) x = 16
+  if (y + PANEL_H_MAX > vh - 16) y = vh - PANEL_H_MAX - 16
+  if (y < 16) y = 16
+  return { x, y }
+}
+function clampPos(x, y) {
+  const vw = window.innerWidth, vh = window.innerHeight
+  return { x: Math.max(16, Math.min(vw - PANEL_W - 16, x)), y: Math.max(16, Math.min(vh - PANEL_H_MAX - 16, y)) }
+}
+
+function panelsStorageKey() { return "recall.pinned." + (proj() || "default") }
+function loadStoredPanels() {
+  try {
+    const raw = localStorage.getItem(panelsStorageKey())
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+function saveStoredPanels() {
+  try {
+    const data = Array.from(pinnedPanels.values()).map(p => ({ qn: p.qn, kind: p.kind, x: p.x, y: p.y, minimized: p.minimized }))
+    localStorage.setItem(panelsStorageKey(), JSON.stringify(data))
+  } catch {}
+}
+
+function bringToFront(el) { el.style.zIndex = ++topZ }
+
+function positionPanel(el, x, y) { el.style.left = x + "px"; el.style.top = y + "px" }
+
+function buildPanelChrome() {
+  const el = document.createElement("div")
+  el.className = "panel"
+  el.innerHTML =
+    `<div class="glow"></div>` +
+    `<header>` +
+    `<div class="ph-left"><span class="cat"></span><span class="mini-title"></span></div>` +
+    `<div class="ph-actions">` +
+    `<button class="pin" title="Pin panel">📌</button>` +
+    `<button class="min" title="Minimize">–</button>` +
+    `<button class="close" title="Close">✕</button>` +
+    `</div></header>` +
+    `<div class="body"><span class="empty">Loading…</span></div>`
+  document.getElementById("panels").appendChild(el)
+  return el
+}
+
+function wirePanelChrome(el) {
+  el.querySelector("header").addEventListener("mousedown", (e) => startDrag(e, el))
+  el.addEventListener("mousedown", () => bringToFront(el))
+  el.querySelector(".close").addEventListener("click", () => closePanel(el))
+  el.querySelector(".pin").addEventListener("click", () => pinPanel(el))
+  el.querySelector(".min").addEventListener("click", () => toggleMinimize(el))
+}
+
+function startDrag(e, el) {
+  e.preventDefault()
+  bringToFront(el)
+  const rect = el.getBoundingClientRect()
+  const dx = e.clientX - rect.left, dy = e.clientY - rect.top
+  function onMove(ev) {
+    const w = el.offsetWidth, h = el.offsetHeight
+    let x = Math.max(0, Math.min(window.innerWidth - w, ev.clientX - dx))
+    let y = Math.max(0, Math.min(window.innerHeight - h, ev.clientY - dy))
+    // Snap to sibling panel edges so pinned panels tile cleanly instead of
+    // overlapping by a stray pixel or two.
+    document.querySelectorAll(".panel").forEach(sib => {
+      if (sib === el) return
+      const r = sib.getBoundingClientRect()
+      if (Math.abs(x - r.right) < SNAP_DIST) x = r.right + 4
+      else if (Math.abs((x + w) - r.left) < SNAP_DIST) x = r.left - w - 4
+      else if (Math.abs(x - r.left) < SNAP_DIST) x = r.left
+      if (Math.abs(y - r.bottom) < SNAP_DIST) y = r.bottom + 4
+      else if (Math.abs((y + h) - r.top) < SNAP_DIST) y = r.top - h - 4
+      else if (Math.abs(y - r.top) < SNAP_DIST) y = r.top
+    })
+    positionPanel(el, x, y)
+    el.__state.x = x; el.__state.y = y
+  }
+  function onUp() {
+    window.removeEventListener("mousemove", onMove)
+    window.removeEventListener("mouseup", onUp)
+    if (el.__state.pinned) saveStoredPanels()
+  }
+  window.addEventListener("mousemove", onMove)
+  window.addEventListener("mouseup", onUp)
+}
+
+function closePanel(el) {
+  if (el.__state.pinned) { pinnedPanels.delete(el.__state.key); saveStoredPanels() }
+  else if (activePanel === el) activePanel = null
+  el.remove()
+}
+// dismissActivePanel drops the single unpinned panel, leaving pinned ones alone.
+// A new query is a new context: an unpinned panel is whatever node was last
+// CLICKED, and leaving it open across a search makes it read as the search's
+// answer — it sits above the graph with no visual link to the ranked list, so a
+// query whose top hit is one node while the stale panel shows another looks
+// exactly like a broken search. Pinned panels survive because pinning is the
+// explicit request to keep a node in view across queries.
+function dismissActivePanel() {
+  if (activePanel) closePanel(activePanel)
+}
+function closeAllPanels() {
+  if (activePanel) { activePanel.remove(); activePanel = null }
+  pinnedPanels.forEach(p => p.el && p.el.remove())
+  pinnedPanels.clear()
+}
+
+function pinPanel(el) {
+  if (el.__state.pinned) return
+  el.__state.pinned = true
+  el.__state.key = ++panelCounter
+  pinnedPanels.set(el.__state.key, el.__state)
+  if (activePanel === el) activePanel = null
+  el.querySelector(".pin").style.display = "none"
+  el.querySelector(".min").style.display = ""
+  saveStoredPanels()
+}
+
+function toggleMinimize(el) {
+  el.__state.minimized = !el.__state.minimized
+  el.classList.toggle("minimized", el.__state.minimized)
+  el.querySelector(".min").textContent = el.__state.minimized ? "▾" : "–"
+  if (el.__state.pinned) saveStoredPanels()
+}
+
+// updatePinVisibility hides the pin button once a node is already pinned
+// elsewhere (or once this panel itself is pinned) — no point offering to pin
+// a duplicate.
+function updatePinVisibility(el) {
+  const pinBtn = el.querySelector(".pin")
+  if (el.__state.pinned) { pinBtn.style.display = "none"; return }
+  const alreadyPinned = Array.from(pinnedPanels.values()).some(p => p.qn === el.__state.qn)
+  pinBtn.style.display = alreadyPinned ? "none" : ""
+}
+
+// paintPanel fills a panel's header + body from a loaded node (same fields the
+// old .ctx drawer rendered: title, file:line, kind, content, relations).
+function paintPanel(el, d) {
+  const cat = categoryOf(d.kind)
+  el.style.setProperty("--accent", cat.color)
+  el.querySelector(".cat").textContent = cat.label.toUpperCase()
+  el.querySelector(".mini-title").textContent = d.title || d.qn
+
+  const isDoc = DOC_KINDS.has(d.kind)
+  let contentHTML
+  if (!d.content) contentHTML = `<span class="empty">No stored content for this node.</span>`
+  else if (isDoc) contentHTML = `<div class="md">${miniMarkdown(d.content)}</div>`
+  else contentHTML = `<pre>${esc(d.content)}</pre>`
+
+  let rels = ""
+  for (const rel of ["calls", "called_by", "imports"]) {
+    const list = d[rel]
+    if (!list || !list.length) continue
+    rels += `<div class="rel"><h4>${rel.replace("_", " ")}</h4>` +
+      list.map(t => `<a data-qn="${esc(t)}" title="${esc(t)}">${esc(shortLabel(t))}</a>`).join("") + `</div>`
+  }
+
+  const body = el.querySelector(".body")
+  body.innerHTML = `<div class="loc">${esc(d.file)}:${d.line_start}${d.language ? ' · ' + esc(d.language) : ''}</div>${contentHTML}${rels}`
+  body.querySelectorAll(".rel a").forEach(a => a.addEventListener("click", () => loadIntoPanel(el, a.dataset.qn)))
+}
+
+// loadIntoPanel fetches a node and paints it into an EXISTING panel — used both
+// for a panel's initial content and for relation-link navigation, which stays
+// inside the same panel rather than opening a new one (matches the old
+// openCtx(qn) behavior).
+async function loadIntoPanel(el, qn) {
+  el.querySelector(".body").innerHTML = `<span class="empty">Loading…</span>`
+  let d
+  try { d = await loadNode(qn) } catch { d = null }
+  if (!d) {
+    el.querySelector(".body").innerHTML = `<span class="empty">Couldn't load this node.</span>`
+    return
+  }
+  el.__state.qn = d.qn
+  el.__state.kind = d.kind
+  paintPanel(el, d)
+  updatePinVisibility(el)
+}
+
+function mountPanel({ key, qn, kind, x, y, pinned, minimized }) {
+  const el = buildPanelChrome()
+  el.__state = { key, qn, kind, x, y, pinned: !!pinned, minimized: !!minimized, el }
+  positionPanel(el, x, y)
+  if (minimized) { el.classList.add("minimized"); el.querySelector(".min").textContent = "▾" }
+  el.querySelector(".pin").style.display = pinned ? "none" : ""
+  el.querySelector(".min").style.display = pinned ? "" : "none"
+  wirePanelChrome(el)
+  loadIntoPanel(el, qn)
+  bringToFront(el)
+  return el
+}
+
+// onNodeClick opens (or, clicking the same node again, closes) the single
+// unpinned "active" panel anchored next to the click point — pin it to keep it
+// open while browsing elsewhere.
+function onNodeClick(n, clientX, clientY) {
+  if (activePanel && activePanel.__state.qn === n.qn && !activePanel.__state.pinned) {
+    closePanel(activePanel)
+    return
+  }
+  if (activePanel) closePanel(activePanel)
+  const { x, y } = anchorPos(clientX, clientY)
+  activePanel = mountPanel({ key: "active", qn: n.qn, kind: n.kind, x, y, pinned: false, minimized: false })
+}
+
+function restorePanels() {
+  for (const p of loadStoredPanels()) {
+    if (!p || !p.qn) continue
+    const key = ++panelCounter
+    const pos = clampPos(p.x || (24 + (pinnedPanels.size % 3) * (PANEL_W + 16)), p.y || (80 + Math.floor(pinnedPanels.size / 3) * 220))
+    const el = mountPanel({ key, qn: p.qn, kind: p.kind, x: pos.x, y: pos.y, pinned: true, minimized: !!p.minimized })
+    pinnedPanels.set(key, el.__state)
+  }
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+// Server-first search, mirroring ui/components/memory-graph.tsx (see the
+// comment at its lines 112-115): every non-empty query hits the REAL hybrid
+// search (HNSW semantic + trigram lexical, fused by RRF —
+// internal/memmaps/index.Search) via searchGraph() below, not a client-side
+// substring test over whatever happens to be loaded — a client-side filter
+// alone silently scopes search to the preview and can never find a query
+// phrased differently from the stored text ("how does the reflection pass
+// build memory" has no literal substring match anywhere, but the semantic
+// channel finds it). Debounced 300ms (matching the reference) since a search
+// is now both a network call and a full Voronoi rebuild (Step 3 in build()
+// unions the ranked hits into the drawn set), not a cheap opacity toggle.
+const searchInputEl = document.getElementById("search")
+let searchDebounce = null
+searchInputEl.addEventListener("input", (e) => {
+  const val = e.target.value
+  if (searchDebounce) clearTimeout(searchDebounce)
+  searchDebounce = setTimeout(() => runSearch(val), 300)
+})
+
+// bridgeSearch calls one MCP search tool over the host bridge and normalizes
+// its reply to a plain hit array (empty on any shape mismatch).
+// cutoff: the UI asks the server to drop the ranked tail at its steepest score
+// drop. On a corpus where documents resemble one another, every node scores
+// something against every query, so a one-answer query still fills the limit
+// with near-ties a few points below the winner — and a graph highlighting 20
+// nodes when one is right reads as a broken search. The MCP default stays off;
+// this is the UI's choice, because the UI shows hits as highlighted nodes rather
+// than as a list a caller can scan and dismiss.
+async function bridgeSearch(tool, q, limit) {
+  const j = resultJSON(await callTool(tool, { query: q, limit, cutoff: true }))
+  return (j && Array.isArray(j.results)) ? j.results : []
+}
+
+// searchGraph is the dual-path entry point for a query, same idiom as
+// loadGraph/loadNode: try the MCP tool over the bridge first, else fall back
+// to fetching the browser-mode JSON endpoint. The tool chosen mirrors the
+// current All/Docs/Code filter — search_graph_docs for "docs", search_graph
+// for "code". There is no single bridge tool that searches every kind at
+// once (search_graph is itself restricted to code-ish kinds server-side), so
+// "all" calls both and re-ranks the union by score; ./search?kind=all does
+// this correctly in one fused ranking (nil kind filter, one Index.Search
+// call), which is what browser mode gets directly.
+async function searchGraph(q) {
+  const limit = 20 // the server hard-caps at this (maxSearchLimit) regardless
+  if (inHost) {
+    try {
+      let results
+      if (filter === "docs") {
+        results = await bridgeSearch("search_graph_docs", q, limit)
+      } else if (filter === "code") {
+        results = await bridgeSearch("search_graph", q, limit)
+      } else {
+        // Tolerate ONE tool failing without discarding the other's real hits,
+        // but if BOTH fail, throw (rather than quietly returning []) so this
+        // falls through to the fetch fallback below — the same "only fall
+        // back on an actual failure to answer, not on a genuine zero-hit
+        // answer" rule loadGraph/loadNode already follow.
+        const settled = await Promise.allSettled([
+          bridgeSearch("search_graph", q, limit),
+          bridgeSearch("search_graph_docs", q, limit),
+        ])
+        const code = settled[0].status === "fulfilled" ? settled[0].value : null
+        const docs = settled[1].status === "fulfilled" ? settled[1].value : null
+        if (code === null && docs === null) throw new Error("search_graph and search_graph_docs both failed")
+        results = [...(code || []), ...(docs || [])].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, limit)
+      }
+      return results
+    } catch (e) { console.warn("callTool search failed:", e) }
+  }
+  const url = withProject("./search?q=" + encodeURIComponent(q) + "&kind=" + encodeURIComponent(filter) + "&limit=" + limit + "&cutoff=gap")
+  const r = await fetch(url)
+  if (!r.ok) throw new Error("HTTP " + r.status)
+  const j = await r.json()
+  return Array.isArray(j.results) ? j.results : []
+}
+
+// runSearch drives one query end-to-end: empty clears back to the bounded
+// preview; otherwise it calls searchGraph and, on success, rebuilds with the
+// ranked hits unioned in. searchSeq guards against a slow request resolving
+// after a newer one already landed (or after the box was cleared) from
+// clobbering the current state with stale results.
+let searchSeq = 0
+async function runSearch(val) {
+  const q = val.trim()
+  const seq = ++searchSeq
+  if (!q) {
+    dismissActivePanel()
+    searchQuery = val
+    serverHits = []
+    serverHitRank = new Map()
+    searchError = null
+    searchPending = false
+    updateSearchStatus()
+    build()
+    return
+  }
+  searchPending = true
+  searchError = null
+  updateSearchStatus()
+  let results
+  try {
+    results = await searchGraph(q)
+  } catch (e) {
+    if (seq !== searchSeq) return
+    console.warn("search failed:", e)
+    searchPending = false
+    // Deliberately do NOT touch searchQuery/serverHits or call build() here —
+    // the currently drawn graph (the last GOOD render) stays exactly as it
+    // was; only the visible status changes. Falling back to a client-side
+    // substring scan here would hide the fact that real search is broken
+    // behind results that look like they came from search.
+    searchError = (e && e.message) || String(e)
+    updateSearchStatus()
+    return
+  }
+  if (seq !== searchSeq) return // superseded by a newer query — discard
+  dismissActivePanel()
+  searchQuery = val
+  serverHits = Array.isArray(results) ? results : []
+  serverHitRank = new Map(serverHits.map((h, i) => [h.qn, i]))
+  searchPending = false
+  updateSearchStatus()
+  build()
+  refreshMetrics() // this query's own contribution to the search HUD, without waiting for the next poll tick
+}
+
+// updateSearchStatus renders the one visible line next to the search box:
+// pending, a failure (kept until the next successful search — see runSearch),
+// or the ranked hit count. Idle (no query, no error) clears it.
+function updateSearchStatus() {
+  searchStatusEl.classList.toggle("error", !!searchError)
+  if (searchError) searchStatusEl.textContent = "search failed: " + searchError
+  else if (searchPending) searchStatusEl.textContent = "searching…"
+  else if (searchQuery.trim() && serverHits.length) searchStatusEl.textContent = serverHits.length + " ranked hit" + (serverHits.length === 1 ? "" : "s")
+  else if (searchQuery.trim()) searchStatusEl.textContent = "no hits"
+  else searchStatusEl.textContent = ""
+}
+
+
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return
+  hideTip()
+  if (activePanel) closePanel(activePanel)
+})
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])) }
+// Tiny markdown: headings, bold, inline code, fenced blocks, paragraphs. Enough
+// for ADR/README sections without pulling a markdown lib into the offline bundle.
+//
+// Fenced-block lines are collected into their own buffer (codeBuf) and joined
+// with a real "\n" when the fence closes — NOT pushed one-per-line straight
+// into `out`, which is joined with "" at the end. Pushing per-line into `out`
+// silently dropped every newline inside a fence (a `<pre>` preserves literal
+// "\n" characters via CSS white-space, but there were none left to preserve —
+// esc(ln) strips the newline that String.split("\n") already consumed, and
+// nothing added it back), so a multi-line fenced block rendered as one
+// run-on line. Indented (4-space) blocks aren't given special <pre> treatment
+// either before or after this fix — they fall through to the paragraph path
+// below, which already preserves line breaks as <br> (just not monospace
+// alignment); inline `` `code` `` only ever goes through inline(), untouched
+// by this change.
+function miniMarkdown(src) {
+  const lines = String(src).split("\n"); let out = [], inCode = false, buf = [], codeBuf = []
+  const flush = () => { if (buf.length) { out.push("<p>" + buf.join("<br>") + "</p>"); buf = [] } }
+  const flushCode = () => { out.push("<pre>" + codeBuf.join("\n") + "</pre>"); codeBuf = [] }
+  for (const ln of lines) {
+    if (ln.trim().startsWith("```")) {
+      if (inCode) { flushCode(); inCode = false } else { flush(); inCode = true }
+      continue
+    }
+    if (inCode) { codeBuf.push(esc(ln)); continue }
+    const h = ln.match(/^(#{1,3})\s+(.*)/)
+    if (h) { flush(); out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); continue }
+    if (ln.trim() === "") { flush(); continue }
+    buf.push(inline(ln))
+  }
+  flush(); if (inCode) flushCode()
+  return out.join("")
+}
+function inline(s) { return esc(s).replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>") }
+
+// ── Live hit stream ───────────────────────────────────────────────────────────
+// GET /ws lights up nodes as an agent actually touches them — one JSON text
+// frame per event, {type:"hit"|"change", data:{...}}. This is a visualization
+// layered on TOP of the graph, never a data source anything else here reads,
+// so every failure mode has to fade into nothing rather than announce itself:
+// an older snapshot-server binary with no /ws route at all (a plain 404 on
+// the upgrade), a connection dropping mid-session, a malformed frame, or a
+// host with no HTTP origin at all (the MCP App iframe) must all leave the
+// rest of the page working exactly as it does today.
+const WS_BACKOFF_MIN_MS = 1000
+const WS_BACKOFF_MAX_MS = 30000
+const HIT_WINDOW_MS = 10000   // "recent" in the HUD row means "in the last 10s", not "ever"
+let wsBackoffMs = WS_BACKOFF_MIN_MS
+let ws = null
+let streamState = "connecting"
+let hitTimestamps = []
+
+function connectStream() {
+  if (typeof WebSocket === "undefined") return
+  if (inHost) return // sandboxed MCP host iframe — no HTTP origin to dial
+  if (location.protocol !== "http:" && location.protocol !== "https:") return // e.g. a file:// preview
+  setInterval(updateStreamHud, 2000) // ages the rolling hit count back down between hits
+  updateStreamHud()
+  openSocket()
+}
+
+function openSocket() {
+  let sock
+  try {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:"
+    sock = new WebSocket(proto + "//" + location.host + "/ws")
+  } catch (e) {
+    scheduleReconnect() // construction itself can throw in some sandboxes — treat like any other drop
+    return
+  }
+  ws = sock
+  sock.onopen = () => {
+    wsBackoffMs = WS_BACKOFF_MIN_MS // a successful connection forgives past failures
+    streamState = "live"
+    updateStreamHud()
+  }
+  sock.onmessage = (ev) => {
+    let msg
+    try { msg = JSON.parse(ev.data) } catch (e) { return } // one bad frame must never take the socket down
+    if (!msg || typeof msg !== "object") return
+    if (msg.type === "hit") handleHitFrame(msg.data)
+    else if (msg.type === "change") handleChangeFrame(msg.data)
+  }
+  // onerror carries no diagnostic detail by spec and is always followed by
+  // onclose, so the reconnect lives there alone — retrying from both would
+  // double the attempt rate.
+  sock.onerror = () => {}
+  sock.onclose = () => {
+    ws = null
+    streamState = "retrying"
+    updateStreamHud()
+    scheduleReconnect()
+  }
+}
+
+// scheduleReconnect is what keeps a permanently-404ing /ws (an older server
+// binary) from ever becoming a tight loop: each attempt doubles the wait, capped.
+function scheduleReconnect() {
+  const delay = wsBackoffMs
+  wsBackoffMs = Math.min(WS_BACKOFF_MAX_MS, wsBackoffMs * 2)
+  setTimeout(openSocket, delay)
+}
+
+// A hit frame is the only thing that lights the graph: resolve its names to
+// regions and let flashRegions do the rest. The counter moves even when nothing
+// on screen matched, so "a hit arrived but nothing was drawn for it" stays
+// distinguishable from "no hit arrived".
+function handleHitFrame(data) {
+  if (!data) return
+  const qns = Array.isArray(data.qns) ? data.qns.filter(q => typeof q === "string" && q) : []
+  if (!qns.length) return
+  flashRegions(qns, Array.isArray(data.kinds) ? data.kinds : [])
+  recordHits(qns.length)
+}
+
+// qnPath strips the repo prefix and any ::Symbol, leaving the repo-relative path
+// a File node is keyed by.
+function qnPath(qn) {
+  const cut = qn.indexOf("//")
+  const rest = cut === -1 ? qn : qn.slice(cut + 2)
+  const sym = rest.indexOf("::")
+  return sym === -1 ? rest : rest.slice(0, sym)
+}
+
+// An update frame's paths are namespaced or absolute while node names are
+// repo-relative, so match on a "/"-bounded suffix: "foo.go" must not match
+// "otherfoo.go".
+function pathSuffixMatch(rel, p) { return p === rel || p.endsWith("/" + rel) }
+
+function handleChangeFrame(data) {
+  if (!data || !Array.isArray(data.paths) || !data.paths.length) return
+  const drawn = window.__drawnNodes || []
+  const touched = []
+  for (const n of drawn) {
+    if (n.kind !== "File") continue
+    const rel = qnPath(n.qn)
+    if (data.paths.some(p => typeof p === "string" && pathSuffixMatch(rel, p))) touched.push(n.qn)
+  }
+  if (touched.length) flashRegions(touched, [])
+}
+
+// ── Region flash ──────────────────────────────────────────────────────────
+// Ported from the reference memory graph (xray-ui components/memory-graph.tsx):
+// the ring on a single dot is an attention spike, not the signal. The signal is
+// the REGION — the whole category a hit landed in lights up and dims back down
+// over HIT_FADE_MS, so a hit is still legible seconds after its ring finished,
+// and a hit whose node is not drawn still has somewhere to show itself.
+//
+// Once per DISTINCT category, never once per hit: five hits in one region must
+// read as one pulse rather than five stacked transitions saturating it solid.
+const HIT_FADE_MS = 20000
+const CELL_BASE_OPACITY = 0.28     // matches the cells' resting fill-opacity in build()
+const REGION_FLASH_OPACITY = 0.7   // below the direct 0.85, so a drawn hit still reads stronger
+const DIRECT_FLASH_OPACITY = 0.85
+
+function flashRegions(qns, kinds) {
+  // Same suppression as the ring: nothing new lights up while the stats lens
+  // is being read (see showTip).
+  if (lensActive()) return
+  const cells = window.__cellSel
+  if (!cells) return
+
+  const direct = new Set(qns)
+  const cats = new Set()
+  const drawn = window.__drawnNodes || []
+  qns.forEach((qn, i) => {
+    const node = drawn.find(n => n.qn === qn)
+    const kind = node ? node.kind : (kinds && i < kinds.length ? kinds[i] : null)
+    if (kind) cats.add(categoryOf(kind).id)
+  })
+  if (!cats.size) return
+
+  // Reduced motion still gets the highlight — it is information, not decoration
+  // — but as a step that clears after a few seconds rather than a long fade.
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  const dur = reduce ? 0 : HIT_FADE_MS
+  const delay = reduce ? 4000 : 0
+
+  cells.filter(d => direct.has(d.qn)).each(function (d) {
+    const color = categoryOf(d.kind).color
+    d3.select(this).interrupt()
+      .attr("fill-opacity", DIRECT_FLASH_OPACITY)
+      .attr("stroke-width", 3)
+      .style("filter", `drop-shadow(0 0 18px ${color}) drop-shadow(0 0 6px ${color})`)
+      .transition().delay(delay).duration(dur).ease(d3.easeCubicOut)
+      .attr("fill-opacity", CELL_BASE_OPACITY)
+      .attr("stroke-width", 1)
+      .style("filter", null)
+  })
+
+  cells.filter(d => !direct.has(d.qn) && cats.has(categoryOf(d.kind).id)).each(function (d) {
+    const color = categoryOf(d.kind).color
+    d3.select(this).interrupt()
+      .attr("fill-opacity", REGION_FLASH_OPACITY)
+      .style("filter", `drop-shadow(0 0 12px ${color})`)
+      .transition().delay(delay).duration(dur).ease(d3.easeCubicOut)
+      .attr("fill-opacity", CELL_BASE_OPACITY)
+      .style("filter", null)
+  })
+
+  // The dots are the hit itself: the one that was returned goes solid and
+  // oversized, the rest of its region lifts halfway. Both decay on the same
+  // clock as the cells, so the whole region settles as one.
+  const dots = window.__dotSel
+  if (dots) {
+    dots.filter(d => direct.has(d.qn)).each(function (d) {
+      const color = categoryOf(d.kind).color
+      d3.select(this).interrupt()
+        .attr("fill-opacity", 1).attr("stroke-width", 3)
+        .attr("r", nodeRadius(d.degree) * 2.1)
+        .style("filter", `drop-shadow(0 0 10px ${color})`)
+        .transition().delay(delay).duration(dur).ease(d3.easeCubicOut)
+        .attr("fill-opacity", 0.35).attr("stroke-width", 1.5)
+        .attr("r", nodeRadius(d.degree))
+        .style("filter", null)
+    })
+    dots.filter(d => !direct.has(d.qn) && cats.has(categoryOf(d.kind).id)).each(function (d) {
+      d3.select(this).interrupt()
+        .attr("fill-opacity", 0.8).attr("stroke-width", 2)
+        .transition().delay(delay).duration(dur).ease(d3.easeCubicOut)
+        .attr("fill-opacity", 0.35).attr("stroke-width", 1.5)
+    })
+  }
+
+  // On a sparse region the watermark may be the only thing standing there, so
+  // it gets the same slow decay rather than a short CSS blink.
+  cats.forEach(catId => {
+    const g = document.querySelector(`[data-label-cat="${catId}"]`)
+    if (!g) return
+    const texts = d3.select(g).selectAll("text")
+    texts.interrupt()
+      .attr("fill-opacity", (_, i) => (i === 0 ? 0.3 : 0.85))
+      .transition().delay(delay).duration(dur).ease(d3.easeCubicOut)
+      .attr("fill-opacity", (_, i) => (i === 0 ? 0.05 : 0.55))
+  })
+}
+
+
+// recordHits/recentHitCount back the HUD's "N hits" suffix with a rolling 10s
+// window rather than a lifetime total, so the row reads as "is the stream
+// active right now", not a counter that only ever climbs.
+function recordHits(n) {
+  const now = Date.now()
+  for (let i = 0; i < n; i++) hitTimestamps.push(now)
+  updateStreamHud()
+}
+function recentHitCount() {
+  const cutoff = Date.now() - HIT_WINDOW_MS
+  hitTimestamps = hitTimestamps.filter(t => t >= cutoff)
+  return hitTimestamps.length
+}
+
+// updateStreamHud appends the live-stream row through the same low-contrast
+// idiom as #hudGraph/#hudSearch (a plain label+value div — #hud's existing CSS
+// already styles any div/.label inside it), via its own element and function
+// rather than folding into updateHud()'s counts-shaped row list, so this never
+// has to fabricate a fake graph `counts` object just to trigger a render.
+function updateStreamHud() {
+  const el = document.getElementById("hudStream")
+  if (!el) return
+  const n = recentHitCount()
+  const state = streamState === "live" ? "live" : streamState === "retrying" ? "retrying…" : "connecting…"
+  const suffix = n ? " · " + n + " hit" + (n === 1 ? "" : "s") : ""
+  el.innerHTML = `<div><span class="label">stream </span><span>${esc(state + suffix)}</span></div>`
+}
+
+connectStream()
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+async function reload() {
+  statusEl.textContent = "Loading graph…"; statusEl.style.display = ""
+  try {
+    DUMP = await loadGraph()
+    if (!DUMP || !Array.isArray(DUMP.nodes) || DUMP.nodes.length === 0) {
+      statusEl.textContent = "This graph is empty — nothing indexed yet."
+      statusEl.style.display = ""
+      svg.selectAll("*").remove()
+      updateHud({ drawnNodes: 0, totalNodes: 0, drawnEdges: 0, totalEdges: 0, byCategory: {} })
+      return
+    }
+    statusEl.style.display = "none"
+    build()
+  } catch (e) {
+    statusEl.textContent = "Failed to load graph: " + e.message
+    statusEl.style.display = ""
+  }
+}
+async function boot() {
+  await loadVersion()
+  await populateProjects()
+  restorePanels()
+  await reload()
+  window.addEventListener("resize", () => build())
+  refreshMetrics()
+  setInterval(refreshMetrics, 5000)
+}
+// In a host, give the ui/initialize handshake a moment; either way boot once.
+// (loadGraph uses the bridge when inHost, else fetch — so booting on the fallback
+// timer is safe even if the handshake never arrives.)
+if (inHost) { setTimeout(boot, 500) } else { boot() }
+</script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+# Architecture Decision Records
+
+> The ADRs are a historical record: they keep the wording of the time they were written.
+> Numbers 017, 021, 046 and 048 are not in the repository (removed or never published).
+
+| ADR | Title | Status | Todo | Tests |
+| ----- | ------- | -------- | ------ | ------- |
+| [000](000-Arch.md) | Architecture Overview | Reference | — | — |
+| [001](001-memory-store.md) | Memory Store — Two Modes, One Interface | Implemented | — | — |
+| [002](002-persistence-paths.md) | Persistence Paths — What Survives a Pod Restart | Implemented | — | — |
+| [003](003-voice-session-config.md) | Voice Session Configuration via system_configuration Cell | Implemented | — | — |
+| [004](004-mcp-server.md) | MCP Server — Tools, Auth, and Persistence | Implemented | — | — |
+| [005](005-cellsyncer.md) | CellSyncer — CR to Memory Sync | Implemented | — | — |
+| [006](006-runtime-vs-startup-config.md) | Runtime vs Startup Configuration | Implemented | — | — |
+| [007](007-otel-tracing-voice-sessions.md) | OpenTelemetry Tracing for Voice Sessions | Implemented | — | — |
+| [008](008-phoenix-session-tracing.md) | Phoenix Session Tracing for Voice Conversations | Implemented | — | — |
+| [009](009-voice-session-evals.md) | Evaluation Strategy for X-Ray Voice Sessions | Implemented | [voice-session-evals](../todo/voice-session-evals.md) | — |
+| [010](010-controller-cache-memory-search.md) | Controller-Runtime Manager and Cache-Backed Memory Search | Implemented | [memory-search-and-controller](../todo/memory-search-and-controller.md) | — |
+| [011](011-reconciler-only-seed.md) | Reconciler-Only HNSW Seeding | Implemented | — | — |
+| [012](012-voice-session-flow.md) | Voice Session End-to-End Flow | Implemented | — | — |
+| [013](013-pluggable-skill-sdk.md) | Pluggable Skill SDK for Voice Sub-Agents | Accepted | — | — |
+| [014](014-rename-mcell-api.md) | Rename AwarenessMemoryCell → MemoryCell, triageagent.dev → xray.ai | Implemented | — | — |
+| [015](015-end-session-hangup-sequencing.md) | end_session Hangup Sequencing — Audio-Gated Close | Implemented | — | — |
+| [016](016-mcp-server-tools.md) | MCP Server Tool Reference | Implemented | — | — |
+| 017 | *(removed — customer-specific deployment infra, not applicable to the open-source repo)* | — | — | — |
+| [018](018-voice-tool-content-budget.md) | Voice Tool Content Budget | Superseded by ADR-038 | — | — |
+| [019](019-rest-api-reference.md) | REST API Reference | Implemented | — | — |
+| [020](020-associative-memory-architecture.md) | Associative Memory Architecture — In-Memory HNSW with Kubernetes-Native Persistence | Implemented | — | — |
+| 021 | *(removed — the reflection/knowledge loop is out of scope; X-Ray is the memory substrate only)* | — | — | — |
+| [022](022-github-oauth.md) | GitHub OAuth for Public Access (org-restricted) | Implemented | [github-oauth](../todo/github-oauth.md) | — |
+| [023](023-hnsw-lock-free-rebuild.md) | HNSW Lock-Free Graph Rebuild via Pointer Swap | Implemented | — | — |
+| [024](024-personal-recall-memory.md) | Personal Recall Memory (`kind=recall`) | Accepted | — | — |
+| [025](025-floating-pinnable-item-panel.md) | Floating Pinnable Item Panel | Implemented | [floating-panel-followup](../todo/floating-panel-followup.md) | — |
+| [026](026-user-context-persistence.md) | User Context Persistence: Pinned Panels & Agent Notes | Implemented | — | — |
+| [027](027-public-auth-hardening.md) | Public Auth Hardening | Implemented | — | `TestServer_Version`, `TestServer_RequireSession_*`, `TestServer_MemoryEvents_RequiresAuth` |
+| [028](028-agent-note-tenant-isolation.md) | Agent Note Tenant Isolation | Implemented | — | `TestSearchMemoryNoAgentNoteLeakAcrossUsers`, `TestKeywordSearchMapSubjectEquality`, `TestDeleteMemory_OwnershipCheck`, `TestServer_MemoryList_NoAgentNote`, `TestServer_MemorySummary_NoAgentNote`, `TestServer_MemoryGet_AgentNote_Returns404`, `TestMCPUpsertMemory_AgentNote_RequiresSubject` |
+| [029](029-collective-consciousness-sse-graph.md) | Collective Consciousness — Shared SSE Graph Highlighting | Implemented | — | — |
+| [030](030-hybrid-search-scoring.md) | Hybrid Search Scoring & Embedding Model (Fusion; nomic-embed-text-v1.5 @ 256d) | Implemented | — | `TestFuseRRF_OrdersByFusedRank`, `TestFuseRRF_RespectsLimit`, `TestKeywordSearchScored_ConfidenceReflectsTitleMatch`, `TestMemoryStore_KeywordSearch_TrigramRanksStrongerOverlapFirst`, `TestMemoryStore_KeywordSearch_SoftAND`, `TestMemoryStore_KeywordSearch_TokenNormalization` |
+| [031](031-per-user-daily-token-limit.md) | Per-User Daily Gemini Live Token Limit | Implemented | — | `TestMemoryStore_UserTokens_AccumulatesAndRollsOver`, `TestMemoryStore_UserDaily_RoundTripCR`, `TestMemoryStore_SnapshotUserDaily_PrunesStaleDays`, `TestConfigWatcher_ParsesMaxUserDailyTokens`, `TestVoiceManager_RejectsOverDailyLimit`, `TestVoiceManager_CRLimitOverridesFlag`, `TestVoiceManager_UnauthenticatedNeverCapped`, `TestVoiceManager_UnderLimitNotRejected`, `TestVoiceManager_UserQuota_ReportsUsedAndRemaining`, `TestVoiceManager_UserQuota_RemainingFlooredAtZero`, `TestVoiceManager_UserQuota_UnlimitedAndUnauthenticated`, `TestVoiceManager_UserQuota_CRLimitOverridesFlag`, `TestServer_Metrics_IncludesUserQuota`, `TestServer_Metrics_UnlimitedQuota`, `TestVoiceSession_ShouldTriggerLimitFarewell`, `TestMemoryStore_RestoreStats_DoesNotLowerLiveCounter` |
+| [032](032-public-exposure-hardening.md) | Public Exposure Hardening (Round 2) | Implemented | — | `TestWSUpgrader_CheckOrigin`, `TestWSUpgrader_EmptyAllowedOrigin_AllowsAny`, `TestSameOrigin`, `TestMCPServer_FailsClosedWhenTokenUnset`, `TestMCPServer_RejectsWrongToken`, `TestAllowedImageMime`, `TestServer_ImageEndpoint_RejectsScriptableMime`, `TestServer_ImageEndpoint_SetsNosniff`, `TestServer_SecurityHeaders`, `TestServer_HSTS_OnForwardedHTTPS`, `TestServer_LimitBody_CapsBodyRead`, `TestServer_LimitBody_ExemptsVoiceWebSocket`, `TestMemoryStore_Upsert_RejectsOversizedContent`, `TestMemoryStore_Upsert_RejectsOversizedImage`, `TestKeyedRateLimiter_AllowsBurstThenThrottles`, `TestKeyedRateLimiter_ZeroIntervalDisabled`, `TestKeyedRateLimiter_NilIsDisabled` |
+| [033](033-mobile-graph-launcher-ui.md) | Mobile UI — Graph Launcher, Item Overlay, Context-Aware Search | Implemented | — | — |
+| [034](034-mcp-oauth-authorization.md) | MCP OAuth Authorization — X-Ray as the Authorization Server | Implemented | — | `TestMCPAuth_SignAndValidate`, `TestMCPAuth_ValidateRejectsWrongAudience`, `TestMCPAuth_ValidateRejectsWrongIssuer`, `TestMCPAuth_ValidateRejectsForeignKey`, `TestMCPAuth_ValidateRejectsExpired`, `TestMCPAuth_ProtectedResourceMetadata`, `TestMCPAuth_AuthServerMetadata`, `TestMCPAuth_AuthorizeTokenFlow`, `TestMCPAuth_TokenRejectsBadVerifier`, `TestMCPAuth_AuthCodeSingleUse`, `TestMCPAuth_AuthorizeRequiresPKCE`, `TestMCPAuth_AuthorizeRedirectsWhenNotLoggedIn`, `TestMCPAuth_AuthorizeUsesExistingSession`, `TestMCPAuth_RegisterReturnsClientID`, `TestMCPAuth_RegisterRequiresRedirectURIs`, `TestMCPAuth_MetadataAdvertisesRegistration`, `TestMCPAuth_AuthorizeRejectsUnregisteredRedirect`, `TestMCPAuth_AuthorizeAcceptsRegisteredRedirect`, `TestMCPAuth_ScopesForUser`, `TestMCPServer_JWTAccepted`, `TestMCPServer_ChallengeOnNoToken`, `TestMCPServer_StaticSecretFallback`, `TestMCPServer_NoCredentialFailsClosed`, `TestMCPServer_ReadOnlyTokenRejectedOnWriteTool`, `TestMCPServer_WriteTokenAllowedOnWriteTool` |
+| [035](035-ui-category-taxonomy.md) | UI Category Taxonomy — Tag Sub-Views over a Generic Backend | Implemented (items 1–3); item 4 open | — | — (UI; `tsc` + `next build`) |
+| [036](036-mcp-admin-only-access.md) | MCP is an Admin-Only Interface (userHash Allowlist, Fail-Closed) | Implemented | — | `TestMCPAuth_ScopesForUser`, `TestMCPAuth_AuthorizeDeniesNonAllowlistedUser`, `TestMCPAuth_AuthorizeUsesExistingSession`, `TestBuildVoiceTools_WriteGateMatchesUserHashNotName` |
+| [037](037-scope-as-privacy-axis.md) | Scope as the Privacy Axis — `agent_note` Replaced by `note` + scope | Implemented | — | (ADR-028 suite, re-expressed via scope) |
+| [038](038-headroom-token-compression.md) | Headroom Token Compression for Voice search_memory | Implemented | — | TestCompression_RealReduction, TestComparison_BeforeAfter, TestLossyCompress_StripsMarkdownNoise, TestLossyCompress_TruncatesAtWordBoundary, TestLossyCompress_ZeroLimitPassesThrough, TestCompressRows_FactorsConstantFields, TestCompressRows_LossyCompressSetsTruncatedFlag, TestDefSearchMemory_HeadroomTruncatesContent |
+| [039](039-voice-session-longevity.md) | Voice Session Longevity & Conversation Quality — GoAway, Resumption, Compression, Affective Dialog, Proactive Audio | Accepted | [voice-session-longevity](../todo/voice-session-longevity.md) | — |
+| [040](040-per-modality-token-attribution.md) | Per-Modality Voice Token Attribution (Traces, Metrics, UI) | Implemented | — | `TestModalitySplit`, `TestSessionBreakdown_NilUntilCounted` |
+| [041](041-cost-weighted-token-quota.md) | Cost-Weighted Per-User Voice Token Quota | Superseded by ADR-042 | — | — (machinery removed in ADR-042) |
+| [042](042-audio-token-quota.md) | Per-User Daily Quota on Real Audio Tokens | Implemented | — | `TestConfigWatcher_ParsesMaxUserDailyAudioTokens_Renamed`, `TestEffectiveUserDailyLimit_CRAudioOverridesFlag`, `TestEffectiveUserDailyLimit_FlagWhenNoCR`, `TestAudioMetering_ChargesAudioInPlusOutOnly` |
+| [043](043-code-graph.md) | Code Knowledge Graph (xray-code) | Implemented | — | — |
+| [044](044-session-recap-continuity.md) | Session Recap Continuity — Cross-Call Context via Private Recap Notes | Implemented (ADR-057) | — | — |
+| [045](045-xray-code-snapshots-per-project-graphs.md) | xray-code — Offline Snapshots, Per-Project Graphs, and a Persistent Worked Copy | Implemented | — | `registry_test.go` |
+| [047](047-session-persistence-cr-status.md) | Session Persistence on `system_configuration` CR Status (survives restart, shared across replicas) | Implemented | — | `TestSessionStore_SurvivesRestart`, `TestSessionStore_SnapshotStoresHashNotRawToken`, `TestSessionStore_PersistenceDisabledWithoutKey`, `TestSessionStore_SnapshotPrunesExpired`, `TestSessionStore_RestoreSkipsExpiredRows`, `TestSessionStore_RestoreDoesNotClobberLiveSession`, `TestSessionStore_ValidateRekeysRestoredSession`, `TestSessionStore_SnapshotStoresNoCleartextIdentity`, `TestSessionStore_RestoreRejectsForeignKeyIdentity`, `TestStatsFlusher_SearchMarksDirtyNotFlushSync`, `TestStatsFlusher_IdleStaysClean`, `TestStatsFlusher_TickConsumesDirty`, `TestStatsFlusher_DisabledOnZeroInterval` |
+| [049](049-mcp-oauth-client-persistence.md) | MCP OAuth Dynamic-Client Registry Persistence (Claude Code stays registered across restarts) | Implemented | — | `TestOAuthClientStore_SurvivesRestart`, `TestOAuthClientStore_RestoreDoesNotClobberLive`, `TestOAuthClientStore_RestoreSkipsInvalid`, `TestMCPAuth_ClientMapIsBounded` |
+| [050](050-mcp-signing-key-derivation.md) | Deterministic MCP Signing Key (multi-replica token validation; derive Ed25519 from shared secret, never persist) | Implemented | — | `TestMCPSigningSeed_StableAndSeparated`, `TestMCPAuth_DerivedKeySharedAcrossReplicas`, `TestMCPAuth_DerivedKidIsDeterministic`, `TestMCPAuth_JWKSPublishesEd25519`, `TestMCPAuth_ValidateRejectsForeignKey`, `TestMCPAuth_SignAndValidate` |
+| [051](051-mcp-tools-general-agentic-memory.md) | MCP Tools as General Agentic Memory — Align with Voice, Add Multi-Tenant Scope | Proposed | [051-mcp-general-agentic-memory](../todo/051-mcp-general-agentic-memory.md) | — |
+| [053](053-graduate-to-v1-and-align-with-core.md) | Graduate MemoryCell to v1 and Align the Memory Store with the Core (provenance, refute, write dedup, recall shaping, bounded caches) | Implemented | — | `TestResolveOrigin`, `TestMCP_OriginFollowsTheCredential`, `TestRefute_RetiresCellAndCascadesToDerivedCitations`, `TestUpsert_WriteDedupMergesARestatedFact`, `TestConsolidateMemory`, `TestKeywordSearch_RareEntityOutranksFiller`, `TestSubjectIndex_DeleteIsLazyAndNeverReturned`, `TestMemoryCellStore_DimensionGuard`, `TestMemoryNeighbors_ReturnsSharedNeighboursNearestFirst` |
+| [054](054-one-product-memory-and-code-graph.md) | One Product, Authored and Derived Memory (the code graph joins the memory server as `xray graph`) | Implemented | — | — |
+| [055](055-web-ui-in-the-binary.md) | The Web UI Is Part of the Binary (`ui/`, embedded, served at `/`, X-Ray's own `/v1`) | Implemented | — | — |
+| [056](056-mental-maps-from-oci.md) | Mental Maps Pulled From a Registry (`graphRef`) | Implemented | — | `TestSyncMapCell_GraphRef`, `TestFetchGraphArtifact_*` |
+| [057](057-dev-user-and-session-recall.md) | Sign-In Off Runs as a Dev User; a Voice Session Opens With the User's Past | Implemented | — | `TestServer_DevUser_OnlyWithSignInOff`, `TestVoiceManager_UserRecall` |
+| [058](058-voice-on-gemini-3-live.md) | Voice on Gemini 3 Live, and the Bounds on a Runaway Turn | Implemented | — | `TestLiveSupportsAffectiveDialog`, `TestVoiceSession_IsRepeatedCodeCall` |
+
+**Statuses:** `Implemented` = code merged; `Accepted` = decided, pending implementation; `Reference` = living doc, not a decision.

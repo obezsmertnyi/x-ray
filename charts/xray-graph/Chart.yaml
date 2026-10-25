@@ -1,0 +1,21 @@
+apiVersion: v2
+name: xray-graph
+description: "X-Ray code graph served over MCP from pre-built snapshots - agentic memory for code, local or Kubernetes native."
+type: application
+# Maps are mounted as OCI image volumes (volumes[].image), beta and on by
+# default from Kubernetes 1.33.
+kubeVersion: ">=1.33.0-0"
+version: 2.0.0
+appVersion: "v2.0.0"
+home: https://github.com/triageagent-dev/x-ray
+sources:
+  - https://github.com/triageagent-dev/x-ray
+keywords:
+  - mcp
+  - code-graph
+  - semantic-search
+  - hnsw
+maintainers:
+  - name: Denys Vasyliev
+annotations:
+  artifacthub.io/license: Apache-2.0

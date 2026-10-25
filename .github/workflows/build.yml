@@ -1,0 +1,150 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, develop, feature/*, feat/* ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-go@v6
+      with:
+        go-version-file: "go.mod"
+        cache: true
+        cache-dependency-path: go.sum
+
+    - name: Cache Go build cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/go-build
+        key: ${{ runner.os }}-gobuild-${{ hashFiles('**/*.go') }}
+        restore-keys: |
+          ${{ runner.os }}-gobuild-
+
+    - name: Go lint
+      run: make lint
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-go@v6
+      with:
+        go-version-file: "go.mod"
+        cache: true
+        cache-dependency-path: go.sum
+
+    - name: Cache Go build cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/go-build
+        key: ${{ runner.os }}-gobuild-${{ hashFiles('**/*.go') }}
+        restore-keys: |
+          ${{ runner.os }}-gobuild-
+
+    # Both builds: part of the tree sits behind cgo / !cgo tags, so one setting
+    # proves only its half.
+    - name: Run tests (cgo, with the parser)
+      run: make test
+
+    - name: Run tests (static, no parser)
+      run: CGO_ENABLED=0 go test ./...
+
+    - name: Build static binary
+      run: CGO_ENABLED=0 go build ./cmd/xray/...
+
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: ui/package-lock.json
+
+    - name: Type-check, lint and test the web UI
+      run: make ui-test
+
+    # The export must build, embed and be served by the binary.
+    - uses: actions/setup-go@v6
+      with:
+        go-version-file: "go.mod"
+
+    - name: Build the binary with the UI embedded
+      run: make build
+
+    - name: The embedded UI is served
+      run: |
+        set -euo pipefail
+        ./bin/xray --dev --http-address=127.0.0.1:18080 --mcp-address= --metrics-address= >/tmp/xray.log 2>&1 &
+        for _ in $(seq 1 30); do curl -sf http://127.0.0.1:18080/healthz >/dev/null && break; sleep 1; done
+        curl -sf http://127.0.0.1:18080/ | grep -q '<title>'
+        curl -sf http://127.0.0.1:18080/login | grep -q '<title>'
+        curl -sf http://127.0.0.1:18080/v1/version >/dev/null
+
+  adapters:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-go@v6
+      with:
+        go-version-file: "go.mod"
+
+    # The ADK adapter is its own module, so ./... above does not reach it.
+    - name: Test the ADK adapter
+      working-directory: adapters/adk
+      run: |
+        go vet ./...
+        go test ./...
+
+  charts:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: azure/setup-helm@v4
+      with:
+        version: v3.16.2
+
+    - run: helm lint charts/xray charts/xray-graph
+
+    # The memory chart must render, and must start without secrets nobody made.
+    - name: Render the memory chart
+      run: |
+        set -euo pipefail
+        helm template xray charts/xray -n xray > /tmp/default.yaml
+        if grep -q secretKeyRef /tmp/default.yaml; then
+          echo 'the default render references a Secret nobody created' >&2
+          exit 1
+        fi
+        helm template xray charts/xray -n xray --set dev=true | grep -q -- '- --dev'
+        helm template xray charts/xray -n xray --set github.secretName=github-oauth | grep -q GITHUB_CLIENT_ID
+
+    # The chart needs Kubernetes 1.33 (image volumes); with no cluster to ask,
+    # helm assumes an older version and refuses to render.
+    - name: Render the value combinations the validations guard
+      run: |
+        set -euo pipefail
+        render() { helm template t charts/xray-graph --kube-version 1.33.0 "$@" > /dev/null; }
+        render
+        render --set server.auth.enabled=true --set server.auth.secretName=auth
+        render --set server.writable=true --set snapshots.source=pvc --set ingress.enabled=true
+        if render --set server.auth.enabled=true 2>/dev/null; then
+          echo "server.auth.enabled without a secretName rendered; validations.yaml must refuse it" >&2
+          exit 1
+        fi

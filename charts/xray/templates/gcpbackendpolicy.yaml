@@ -1,0 +1,17 @@
+{{- if .Values.gcpBackendPolicy.enabled }}
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Release.Name }}
+spec:
+  targetRef:
+    group: ""
+    kind: Service
+    name: {{ .Release.Name }}
+  default:
+    securityPolicy: {{ .Values.gcpBackendPolicy.securityPolicy | quote }}
+    timeoutSec: {{ .Values.gcpBackendPolicy.timeoutSec }}
+{{- end }}

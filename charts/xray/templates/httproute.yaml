@@ -1,0 +1,104 @@
+{{- if .Values.httpRoute.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  hostnames:
+    - {{ .Values.httpRoute.hostname | quote }}
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ .Values.httpRoute.gatewayName }}
+      namespace: {{ .Values.httpRoute.gatewayNamespace }}
+      sectionName: {{ .Values.httpRoute.sectionName }}
+  rules:
+    {{- if and .Values.mcp.enabled .Values.mcp.exposeOnPublicHost }}
+    # MCP exposes memory write/delete. Routing it on the public app hostname is
+    # opt-in (mcp.exposeOnPublicHost) — prefer the dedicated mcp.hostname route
+    # below, or keep MCP in-cluster only. Bearer auth is enforced fail-closed.
+    - backendRefs:
+        - name: {{ .Release.Name }}
+          port: 8083
+      matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+    {{- end }}
+    - backendRefs:
+        - name: {{ .Release.Name }}
+          port: {{ .Values.service.port }}
+      matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+    - backendRefs:
+        - name: {{ .Release.Name }}
+          port: {{ .Values.service.port }}
+      matches:
+        - path:
+            type: PathPrefix
+            value: /_next/static
+    - backendRefs:
+        - name: {{ .Release.Name }}
+          port: {{ .Values.service.port }}
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
+{{- end }}
+{{- if and .Values.httpRoute.enabled .Values.mcp.enabled .Values.mcp.hostname }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Release.Name }}-mcp
+  namespace: {{ .Values.namespace }}
+spec:
+  hostnames:
+    - {{ .Values.mcp.hostname | quote }}
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ .Values.httpRoute.gatewayName }}
+      namespace: {{ .Values.httpRoute.gatewayNamespace }}
+      sectionName: {{ .Values.httpRoute.sectionName }}
+  rules:
+    - backendRefs:
+        - name: {{ .Release.Name }}
+          port: 8083
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
+{{- end }}
+{{- if and .Values.httpRoute.enabled .Values.httpRoute.httpRedirect }}
+---
+# Redirect plain HTTP to HTTPS. The main route binds only the https listener,
+# so without this HTTP requests to the hostname fall through to a 404.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Release.Name }}-http-redirect
+  namespace: {{ .Values.namespace }}
+spec:
+  hostnames:
+    - {{ .Values.httpRoute.hostname | quote }}
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ .Values.httpRoute.gatewayName }}
+      namespace: {{ .Values.httpRoute.gatewayNamespace }}
+      sectionName: {{ .Values.httpRoute.httpSectionName }}
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
+{{- end }}
