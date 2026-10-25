@@ -2,15 +2,9 @@
 
 ## [Unreleased]
 
-### Security
-- **A persisted session hash no longer works as a session token.** Restored sessions sit in their own map and are matched only by the HMAC of the presented token. Before, presenting the HMAC stored in the system configuration cell's status as a bearer token or cookie authenticated as that user until the session expired. Sessions that were restored and never used are also written back unchanged instead of hashed a second time.
-- **`--dev` cannot be combined with a sign-in provider.** The server refuses to start with `--dev` and `--github-client-id` or `--azure-client-id`, so MCP, CORS and the API can no longer follow different authorisation models. `--dev` listening beyond loopback logs a warning.
-- **A sign-in provider needs an org or tenant.** GitHub sign-in without `--github-org` and Entra sign-in without `--azure-tenant-id` refuse to start; `--allow-any-user` admits every account of the provider on purpose. The chart's `github.org` and `github.team` values were never rendered and are removed; set the flags in `args`.
-- **Voice spend limits default to a limit.** `--user-daily-audio-token-limit` defaults to 500000 and `--max-concurrent-voice` to 20 (the chart values with these names were never passed to the binary and are removed). A session over its daily cap is closed by the server 45 seconds after the model is asked to say goodbye, and a concurrency slot is reserved before the session starts so parallel starts cannot exceed the cap.
+## [2.2.1] - 2026-10-25
 
-## [2.2.0] - 2026-10-25
-
-First public release.
+First public release. It replaces v2.2.0, which was withdrawn.
 
 ### Added
 - **Typed memory** on Kubernetes. Items are `MemoryCell` custom resources in the API group `xray.triageagent.dev/v1`, each with a kind, a scope (`public` or `private`), a subject, tags, a confidence, typed links and an optional expiry. etcd persists, replicates and audits them.
@@ -25,3 +19,11 @@ First public release.
 - **Access control.** GitHub or Microsoft Entra sign-in, an optional GitHub org and team restriction, and read and write scopes for MCP clients.
 - **Traces.** OpenTelemetry export with `--otel-endpoint`, `--otel-project` and `--otel-token-secret` (a bearer token read from a Secret), second-sized latency buckets, and a `voice first audio` log line per turn.
 - **One Helm chart**, `xray`, and a static `xray` image, published to `ghcr.io/triageagent-dev` and built with ko.
+
+### Security
+- **A persisted session hash no longer works as a session token.** Restored sessions sit in their own map and are matched only by the HMAC of the presented token. Before, presenting the HMAC stored in the system configuration cell's status as a bearer token or cookie authenticated as that user until the session expired. Sessions that were restored and never used are also written back unchanged instead of hashed a second time.
+- **`--dev` cannot be combined with a sign-in provider.** The server refuses to start with `--dev` and `--github-client-id` or `--azure-client-id`, so MCP, CORS and the API can no longer follow different authorisation models. `--dev` listening beyond loopback logs a warning.
+- **A sign-in provider needs an org or tenant.** GitHub sign-in without `--github-org` and Entra sign-in without `--azure-tenant-id` refuse to start; `--allow-any-user` admits every account of the provider on purpose. The chart's `github.org` and `github.team` values were never rendered and are removed; set the flags in `args`.
+- **Voice spend limits default to a limit.** `--user-daily-audio-token-limit` defaults to 500000 and `--max-concurrent-voice` to 20 (the chart values with these names were never passed to the binary and are removed). A session over its daily cap is closed by the server 45 seconds after the model is asked to say goodbye, and a concurrency slot is reserved before the session starts so parallel starts cannot exceed the cap.
+- **The live event stream no longer carries what was asked.** A voice or MCP recall publishes the ids and kinds of the shared items it returned, never the query text or a private note's id.
+- **A private item cannot be overwritten by naming its id.** Upserting an id that belongs to another subject's private item is refused.

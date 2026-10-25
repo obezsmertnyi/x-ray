@@ -694,3 +694,27 @@ func TestStatsFlusher_DisabledOnZeroInterval(t *testing.T) {
 	// Nothing consumes the flag — it stays set (loop never started).
 	assert.True(t, s.statsDirty.Load(), "zero interval disables the flusher")
 }
+
+// An id names a private item for its subject only: another caller cannot overwrite
+// it, turn it public or take over its subject by upserting that id.
+func TestUpsert_PrivateItemIsNotWritableBySomeoneElse(t *testing.T) {
+	s := NewMemoryStore()
+	ctx := context.Background()
+	res, msg := s.Upsert(ctx, "note-1", "note", "private", "mine", "original", "alice", "", "", nil, nil)
+	require.Empty(t, msg)
+	require.Equal(t, "note-1", res.ID)
+
+	_, msg = s.Upsert(ctx, "note-1", "note", "public", "taken", "overwritten", "mallory", "", "", nil, nil)
+	assert.Equal(t, "id is not available", msg)
+
+	got := s.getByID(ctx, "note-1")
+	require.NotNil(t, got)
+	assert.Equal(t, "original", got.Content)
+	assert.Equal(t, "private", got.Scope)
+	assert.Equal(t, "alice", got.Subject)
+
+	// The owner can still update it.
+	_, msg = s.Upsert(ctx, "note-1", "note", "private", "mine", "edited", "alice", "", "", nil, nil)
+	assert.Empty(t, msg)
+	assert.Equal(t, "edited", s.getByID(ctx, "note-1").Content)
+}

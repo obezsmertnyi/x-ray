@@ -164,15 +164,7 @@ func defListMemory(memory *MemoryStore, userHash string) voiceToolDef {
 					}
 				}
 			}
-			if len(items) > 0 {
-				ids := make([]string, len(items))
-				kinds := make([]string, len(items))
-				for i, it := range items {
-					ids[i] = it.ID
-					kinds[i] = it.Kind
-				}
-				memory.PublishHit(ids, "", kind, kinds)
-			}
+			memory.sharedHit(items, kind)
 			type row struct {
 				ID      string `json:"id"`
 				Kind    string `json:"kind"`
@@ -254,15 +246,7 @@ func defSearchMemory(memory *MemoryStore, userHash string, headroomLimit int, lo
 					}
 				}
 			}
-			if len(items) > 0 {
-				ids := make([]string, len(items))
-				kinds := make([]string, len(items))
-				for i, it := range items {
-					ids[i] = it.ID
-					kinds[i] = it.Kind
-				}
-				memory.PublishHit(ids, query, kind, kinds)
-			}
+			memory.sharedHit(items, kind)
 			hrRows := make([]headroom.Row, 0, len(items))
 			for _, it := range items {
 				// event_time annotation (docs/todo/graphiti-comparison-refinement.md
@@ -686,7 +670,7 @@ func defFetchMemory(memory *MemoryStore, userHash string, getPinnedIDs func() []
 			// highlight channel can't confirm the existence of another user's
 			// private note by ID.
 			if pinnedFallback {
-				memory.PublishHit(visible, "", "", visibleKinds)
+				memory.PublishHit(visible, "", visibleKinds)
 			}
 			// Headroom token compression (ADR-038): lossy-compress long bodies,
 			// factor uniform fields. No row dropping — full content by id.

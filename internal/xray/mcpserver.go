@@ -222,7 +222,7 @@ func NewMCPServer(memory *MemoryStore, logger zerolog.Logger, getToken func() st
 			}
 		}
 		if len(hitIDs) > 0 {
-			memory.PublishHit(hitIDs, query, kind, hitKinds)
+			memory.PublishHit(hitIDs, kind, hitKinds)
 		}
 		logger.Debug().Str("subject", subject).Str("query", query).Str("kind", kind).Int("results", len(items)).Msg("mcp search_memory")
 		rendered := annotateEventTimes(items)
@@ -475,7 +475,7 @@ func NewMCPServer(memory *MemoryStore, logger zerolog.Logger, getToken func() st
 			rows = append(rows, row{it.ID, it.Kind, it.Subject, it.Title, it.Content, it.Confidence, false, a.Score})
 			ids, kinds = append(ids, it.ID), append(kinds, it.Kind)
 		}
-		memory.PublishHit(ids, anchor, "", kinds)
+		memory.PublishHit(ids, "", kinds)
 		logger.Debug().Str("anchor", anchor).Int("anchors", len(anchors)).Int("activated", len(activated)).Msg("mcp get_memory_context")
 		b, _ := json.MarshalIndent(map[string]any{"anchor": anchor, "count": len(rows), "items": rows}, "", "  ")
 		return mcp.NewToolResultText(string(b)), nil

@@ -1423,6 +1423,11 @@ func (s *MemoryStore) upsertWithStaleAfter(ctx context.Context, id, kind, scope,
 	merged := false
 	if id != "" {
 		if persisted := s.getByID(ctx, id); persisted != nil {
+			// A private item belongs to its subject. Another caller cannot overwrite
+			// it, republish it or take over its subject by naming its id.
+			if isPrivateItem(persisted.Kind, persisted.Scope) && persisted.Subject != subject {
+				return UpsertResult{}, "id is not available"
+			}
 			prior = true
 			existingCreatedAt = persisted.CreatedAt
 			existingStaleAfter = persisted.StaleAfter
@@ -2207,8 +2212,26 @@ func (s *MemoryStore) listSummaryMap(kind, scope, subject string, limit int) (it
 // MemoryHitEvent.Kinds for why: it's what lets the UI flash a hit's category
 // region even when the hit item itself isn't one of the currently-rendered
 // graph nodes.
-func (s *MemoryStore) PublishHit(itemIDs []string, query, kind string, kinds []string) {
-	s.hub.Publish(MemoryHitEvent{ItemIDs: itemIDs, Query: query, Kind: kind, Kinds: kinds})
+//
+// The event reaches every connected client, so it carries ids and kinds only: the
+// query is what a person asked and is not theirs to share, and callers pass shared
+// items only (see sharedHit).
+func (s *MemoryStore) PublishHit(itemIDs []string, kind string, kinds []string) {
+	s.hub.Publish(MemoryHitEvent{ItemIDs: itemIDs, Kind: kind, Kinds: kinds})
+}
+
+// sharedHit publishes a hit for the shared items among items. A private item's id
+// is not named on the stream that every client reads.
+func (s *MemoryStore) sharedHit(items []*MemoryItem, kind string) {
+	ids, kinds := make([]string, 0, len(items)), make([]string, 0, len(items))
+	for _, it := range items {
+		if !isPrivateItem(it.Kind, it.Scope) {
+			ids, kinds = append(ids, it.ID), append(kinds, it.Kind)
+		}
+	}
+	if len(ids) > 0 {
+		s.PublishHit(ids, kind, kinds)
+	}
 }
 
 // RestoreStats loads persisted counters from a RuntimeStats snapshot (e.g. read by ConfigWatcher at startup).

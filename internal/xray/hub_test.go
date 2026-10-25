@@ -560,3 +560,28 @@ func waitUntil(t *testing.T, cond func() bool) {
 	}
 	t.Fatal("condition not met before deadline")
 }
+
+// A voice or MCP recall reaches every connected client, so the event names shared
+// items only and never carries the query that found them.
+func TestSharedHit_OmitsPrivateItemsAndQuery(t *testing.T) {
+	s := NewMemoryStore()
+	ch := s.hub.subscribe()
+	defer s.hub.unsubscribe(ch)
+
+	s.sharedHit([]*MemoryItem{
+		{ID: "pub1", Kind: "stable_fact", Scope: "public"},
+		{ID: "priv1", Kind: "note", Scope: "private"},
+	}, "")
+
+	msg := string(<-ch)
+	assert.Contains(t, msg, "pub1")
+	assert.NotContains(t, msg, "priv1")
+	assert.Contains(t, msg, `"query":""`)
+
+	s.sharedHit([]*MemoryItem{{ID: "priv2", Kind: "note", Scope: "private"}}, "")
+	select {
+	case m := <-ch:
+		t.Fatalf("a hit with only private items must not be published, got %s", m)
+	default:
+	}
+}

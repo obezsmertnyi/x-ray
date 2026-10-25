@@ -51,7 +51,7 @@ func TestMCPSearchMemory_PublishesAHitForTheSharedItemsItReturns(t *testing.T) {
 		require.NoError(t, json.Unmarshal(raw, &hit))
 		assert.Equal(t, []string{"pub-1"}, hit.ItemIDs, "the private item is returned to its owner but never named on the stream")
 		assert.Equal(t, []string{"operational_pattern"}, hit.Kinds)
-		assert.Equal(t, "payments retries", hit.Query)
+		assert.Empty(t, hit.Query, "the stream reaches every client and does not carry what was asked")
 	case <-time.After(3 * time.Second):
 		t.Fatal("no hit event for a recall")
 	}

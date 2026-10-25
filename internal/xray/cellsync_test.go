@@ -133,11 +133,10 @@ func TestMemoryStore_PublishHit(t *testing.T) {
 	ch := s.hub.subscribe()
 	defer s.hub.unsubscribe(ch)
 
-	s.PublishHit([]string{"id1", "id2"}, "query text", "stable_fact", []string{"stable_fact", "note"})
+	s.PublishHit([]string{"id1", "id2"}, "stable_fact", []string{"stable_fact", "note"})
 
 	msg := <-ch
 	assert.Contains(t, string(msg), "id1")
-	assert.Contains(t, string(msg), "query text")
 	assert.Contains(t, string(msg), `"kinds":["stable_fact","note"]`)
 }
 
