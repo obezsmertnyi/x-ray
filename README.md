@@ -47,7 +47,7 @@ This sits on top of the category-coloured flash the graph already draws, and a r
 | Component | Does what here |
 |---|---|
 | **HNSW** | Approximate nearest-neighbour search over embeddings. Memory builds one index per subject over its cells, so a restart rebuilds from the cells without re-embedding. Each code-graph map carries its own index inside the snapshot, so loading a map is not an embed pass. |
-| **Tree-sitter** | The parser behind the code graph. Go gets resolved call, import and inherit edges; TypeScript, JavaScript, Python, Java, Rust, Ruby, C, C++, PHP, C#, Kotlin and Swift go through a generic extractor. The grammars are C and link into the CGO build, which is why only that build parses. |
+| **Tree-sitter** | The parser behind the code graph. Go gets resolved call, import and inherit edges; TypeScript, JavaScript, Python, Java, Rust, Ruby, C, C++, PHP, C# and Kotlin go through a generic extractor. The grammars are C and link into the CGO build, which is why only that build parses. |
 | **Kubernetes** | `MemoryCell` custom resources are the store; etcd persists, replicates and audits them. |
 | **MCP** | The agent interface to both kinds of memory, over streamable HTTP, with OAuth 2.1 or a shared secret. |
 

@@ -4,7 +4,6 @@ go 1.27.3
 
 require (
 	filippo.io/age v1.3.2
-	github.com/alex-pinkus/tree-sitter-swift v0.0.0-20261004031734-82bb3a533e08
 	github.com/danielgtaylor/huma/v2 v2.37.3
 	github.com/fogfish/hnsw v0.0.5
 	github.com/fsnotify/fsnotify v1.9.0

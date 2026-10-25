@@ -256,9 +256,9 @@ class Svc(Base):
 	}
 }
 
-// TestExtractWithTags_KotlinAndSwift pins that Kotlin and Swift sources yield
-// symbols the way the other tags-driven languages do.
-func TestExtractWithTags_KotlinAndSwift(t *testing.T) {
+// TestExtractWithTags_Kotlin pins that Kotlin sources yield symbols the way the
+// other tags-driven languages do.
+func TestExtractWithTags_Kotlin(t *testing.T) {
 	cases := []struct {
 		name  string
 		path  string
@@ -277,17 +277,6 @@ func TestExtractWithTags_KotlinAndSwift(t *testing.T) {
 				"fun format(n: Int): String = n.toString()\n",
 			syms:  []string{"RingView", "render", "Defaults", "weekly", "format"},
 			calls: []string{"format", "render"},
-		},
-		{
-			name: "swift",
-			path: "App/Vitals.swift",
-			src: "protocol Ringed { func render() -> String }\n\n" +
-				"class RingView: Ringed {\n" +
-				"    func render() -> String { return format(7) }\n" +
-				"}\n\n" +
-				"func format(_ n: Int) -> String { return String(n) }\n",
-			syms:  []string{"Ringed", "RingView", "render", "format"},
-			calls: []string{"format"},
 		},
 	}
 	for _, tc := range cases {

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"unsafe"
 
-	tsswift "github.com/alex-pinkus/tree-sitter-swift/bindings/go"
 	tskotlin "github.com/tree-sitter-grammars/tree-sitter-kotlin/bindings/go"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tscsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
@@ -79,7 +78,6 @@ var registry = map[string]*langSpec{
 	"php":        tagsSpec("php", tsphp.LanguagePHP()),
 	"csharp":     tagsSpec("csharp", tscsharp.Language()),
 	"kotlin":     tagsSpec("kotlin", tskotlin.Language()),
-	"swift":      tagsSpec("swift", tsswift.Language()),
 }
 
 // tagsSpec builds a generic tags-based langSpec. queryName selects which
@@ -116,7 +114,6 @@ var extToLang = map[string]string{
 	".cs":    "csharp",
 	".kt":    "kotlin",
 	".kts":   "kotlin",
-	".swift": "swift",
 }
 
 // detectLanguage returns the registered language for a path, or "" if unknown.

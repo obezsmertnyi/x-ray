@@ -19,7 +19,7 @@ Owner: `internal/codegraph/parser`, `engine/parse.go`, `graph/link.go`.
 The walk skips ignored directories and, by default, refuses to descend
 symlinked ones. Go gets the rich extractor with resolved `calls`, `imports` and
 `inherits` edges; ten other languages (TS/TSX, JS, Python, Java, Rust, Ruby, C,
-C++, PHP, C#, Kotlin, Swift) go through a generic Tree-sitter `tags` extractor. Markdown
+C++, PHP, C#, Kotlin) go through a generic Tree-sitter `tags` extractor. Markdown
 becomes one `Doc` node per file plus a `Section` node per `##` heading. YAML
 becomes one `Manifest` node per `---` document, with reference edges to the
 images, secrets and configmaps it names.

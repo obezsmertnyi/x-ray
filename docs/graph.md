@@ -110,7 +110,7 @@ export XRAY_AUTH_TOKEN=$(cat ~/.config/xray/token)   # read by the hook and upda
 
 ## What it indexes
 
-- **Code.** Go with resolved call, import and inherit edges; TypeScript, TSX, JavaScript, Python, Java, Rust, Ruby, C, C++, PHP, C#, Kotlin and Swift through a generic tags extractor that stores symbol bodies and call edges.
+- **Code.** Go with resolved call, import and inherit edges; TypeScript, TSX, JavaScript, Python, Java, Rust, Ruby, C, C++, PHP, C# and Kotlin through a generic tags extractor that stores symbol bodies and call edges.
 - **Documentation.** Markdown: one `Doc` node per file and a `Section` node per second-level heading.
 - **Manifests.** YAML, Helm templates included: one `Manifest` node per document, with reference edges to images, Secrets and ConfigMaps. It reads files only, with no cluster access.
 - **Infrastructure.** Compose files, Dockerfiles, application config and SQL DDL feed the service map that `xray graph services` derives.
