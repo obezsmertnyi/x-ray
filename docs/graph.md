@@ -21,7 +21,7 @@ Only the Tree-sitter parser needs a C toolchain, so CGO is the boundary. The par
 | `serve-snapshots`, `servicemap`, `search`, `impact`, `services`, `update`, `status`, `build`, `install`, `keygen`, `dump <snapshot>` | yes | yes |
 | `serve`, `snapshot`, `dump <repo-dir>` (these parse) | no | yes |
 
-The static build is what runs in a cluster. The CGO build is for workstations and for the CI job that builds snapshots. The container image with the parser is published as `ghcr.io/triageagent-dev/xray:<version>-parser`.
+The static build is what runs in a cluster. The CGO build is for workstations and for the CI job that builds snapshots.
 
 ## Quickstart
 

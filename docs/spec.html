@@ -543,7 +543,7 @@ spec:
   <div class="sechead"><span class="ord">09</span><h2>Code graph</h2></div>
   <p><code>xray graph</code> builds derived memory: a graph of source code, documentation and Kubernetes manifests, embedded for search and saved as a snapshot. Nothing in it is authored, so it can be thrown away and rebuilt. It answers the structural questions that text search cannot: who calls this symbol, what a change reaches, where a decision was written down. It needs no cluster and no database, and it sends nothing off the host except text to the embedding endpoint you point it at.</p>
   <h3>Two builds</h3>
-  <p>Only the Tree-sitter parser needs a C toolchain, so the build tag marks the boundary. The static build is the one deployed to a cluster. Asked to parse, it exits with a message pointing at the CGO build. The container image with the parser is published as a tag of the same repository, <code>&lt;version&gt;-parser</code>.</p>
+  <p>Only the Tree-sitter parser needs a C toolchain, so the build tag marks the boundary. The static build is the one deployed to a cluster. Asked to parse, it exits with a message pointing at the CGO build.</p>
   <div class="tablewrap"><table>
     <tr><th>Sub-command</th><th>Does</th><th>Build</th></tr>
     <tr><td class="k">serve</td><td>Parse repositories on start, hold the graph in memory, re-index on edit, serve MCP with a small UI</td><td>CGO</td></tr>

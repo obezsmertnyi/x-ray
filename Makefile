@@ -28,7 +28,7 @@ LDFLAGS := \
 LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
 LOCALOS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 
-.PHONY: help ui ui-dev ui-test build test lint fmt push image clean version generate sync-crds setup-envtest devenv run-dev run-dev-vertex graph-build graph-serve graph-test graph-push graph-install keygen maps-image
+.PHONY: help ui ui-dev ui-test build test lint fmt push image clean version generate sync-crds setup-envtest devenv run-dev run-dev-vertex graph-build graph-serve graph-test graph-install keygen maps-image
 
 ENVTEST_K8S_VERSION ?= 1.34.0
 OLLAMA_ENDPOINT     ?= http://localhost:8090
@@ -220,19 +220,6 @@ keygen: ## Generate an age identity for encrypted snapshots: make keygen SNAPSHO
 
 maps-image: ## Pack snapshots into a local OCI image tarball: make maps-image MAPS="team skills" (never pushes)
 	@sh hack/maps-oci.sh "$(SNAPSHOT_DIR)" "$(MAPS_IMAGE_OUT)" "$(MAPS_IMAGE_REF)" $(MAPS)
-
-# Parser image: the same cmd/xray, built by ko with CGO on a glibc base so it can
-# parse. ko does not cross-compile C, so build it on a linux/amd64 host with a C
-# compiler (the release workflow does). The config is deploy/parser/.ko.yaml.
-# Pushed as a tag of the xray image repository: <version>-parser and parser.
-graph-push: $(UI_DEP) ## Build and push the parser image with ko (linux/amd64 host with gcc), web UI included
-	@VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) BUILD_DATE=$(BUILD_DATE) \
-		KO_CONFIG_PATH=deploy/parser KO_DOCKER_REPO=$(REGISTRY) ko build \
-		--tags=$(VERSION)-parser,parser \
-		--bare \
-		--platform=linux/amd64 \
-		./cmd/xray
-	@echo "✓ Pushed: $(REGISTRY):$(VERSION)-parser"
 
 ##@ Cleanup
 

@@ -63,5 +63,6 @@
 | [058](058-voice-on-gemini-3-live.md) | Voice on Gemini 3 Live, and the Bounds on a Runaway Turn | Implemented | — | `TestLiveSupportsAffectiveDialog`, `TestVoiceSession_IsRepeatedCodeCall` |
 | [059](059-api-group-xray-triageagent-dev.md) | The API Group Is `xray.triageagent.dev` | Implemented | — | — |
 | [060](060-one-chart.md) | One Chart | Implemented | — | — |
+| [061](061-no-parser-image.md) | No Parser Image | Implemented | — | — |
 
 **Statuses:** `Implemented` = code merged; `Accepted` = decided, pending implementation; `Reference` = living doc, not a decision.

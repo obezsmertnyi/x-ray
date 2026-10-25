@@ -37,7 +37,7 @@ The standalone code is the source of truth for the second kind.
 - Two builds from one source. The static build (`make build`, ko, no CGO) is the
   cluster image and carries every command that reads snapshots. The CGO build
   (`make graph-build`) adds `serve`, `snapshot` and `dump <dir>`, which parse.
-  The parser image is a tag of the same repository, `:<version>-parser`.
+  The parser image is a tag of the same repository, `:<version>-parser` (dropped in ADR-061).
 - One chart per workload: `xray` for the memory server and `xray-graph` for a
   snapshot server on its own. The `xray-recall` chart is gone. (The `xray-graph`
   chart was later removed too: ADR-060.)

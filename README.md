@@ -59,7 +59,7 @@ The images and charts are published to GitHub Packages:
 
 | | |
 |---|---|
-| Image | `ghcr.io/triageagent-dev/xray:<version>` (the build with the parser is `:<version>-parser`) |
+| Image | `ghcr.io/triageagent-dev/xray:<version>` |
 | Chart | `oci://ghcr.io/triageagent-dev/charts/xray` |
 
 ### A first look
