@@ -448,7 +448,7 @@ func (s *CellSyncer) Persist(ctx context.Context, it *MemoryItem, namespace stri
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
 				Namespace: namespace,
-				Labels:    map[string]string{"xray.ai/managed": "true", "xray.ai/kind": it.Kind},
+				Labels:    map[string]string{"xray.triageagent.dev/managed": "true", "xray.triageagent.dev/kind": it.Kind},
 			},
 			Spec: mcell.MemoryCellSpec{
 				ID:         it.ID,

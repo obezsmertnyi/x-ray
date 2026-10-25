@@ -33,10 +33,10 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch"]
-  - apiGroups: ["xray.ai"]
+  - apiGroups: ["xray.triageagent.dev"]
     resources: ["memorycells"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["xray.ai"]
+  - apiGroups: ["xray.triageagent.dev"]
     resources: ["memorycells/status"]
     verbs: ["get", "update", "patch"]
 ---

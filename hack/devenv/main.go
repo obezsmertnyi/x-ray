@@ -81,7 +81,7 @@ func run() error {
 	fmt.Println("devenv: control plane up.")
 	fmt.Printf("devenv: API server: %s\n", cfg.Host)
 	fmt.Printf("devenv: kubeconfig: %s\n", kubeconfigPath)
-	fmt.Println("devenv: CRD installed: memorycells.xray.ai")
+	fmt.Println("devenv: CRD installed: memorycells.xray.triageagent.dev")
 	fmt.Println()
 	fmt.Println("Run xray against it (auth disabled — connect as admin):")
 	fmt.Printf("  KUBECONFIG=%s ./bin/xray --dev --namespace xray --mcp-address :8083 --mcp-oauth=false\n", kubeconfigPath)

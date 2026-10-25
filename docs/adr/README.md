@@ -61,5 +61,6 @@
 | [056](056-mental-maps-from-oci.md) | Mental Maps Pulled From a Registry (`graphRef`) | Implemented | — | `TestSyncMapCell_GraphRef`, `TestFetchGraphArtifact_*` |
 | [057](057-dev-user-and-session-recall.md) | Sign-In Off Runs as a Dev User; a Voice Session Opens With the User's Past | Implemented | — | `TestServer_DevUser_OnlyWithSignInOff`, `TestVoiceManager_UserRecall` |
 | [058](058-voice-on-gemini-3-live.md) | Voice on Gemini 3 Live, and the Bounds on a Runaway Turn | Implemented | — | `TestLiveSupportsAffectiveDialog`, `TestVoiceSession_IsRepeatedCodeCall` |
+| [059](059-api-group-xray-triageagent-dev.md) | The API Group Is `xray.triageagent.dev` | Implemented | — | — |
 
 **Statuses:** `Implemented` = code merged; `Accepted` = decided, pending implementation; `Reference` = living doc, not a decision.

@@ -4,7 +4,7 @@ Agentic memory substrate for local and Kubernetes-native use.
 
 X-Ray gives an agent two kinds of memory:
 
-- **Authored memory.** Typed items that agents and people write: facts, patterns, events, notes. In a cluster each item is a `MemoryCell` custom resource (`xray.ai/v1`); in a program they live in the process.
+- **Authored memory.** Typed items that agents and people write: facts, patterns, events, notes. In a cluster each item is a `MemoryCell` custom resource (`xray.triageagent.dev/v1`); in a program they live in the process.
 - **Derived memory.** A graph of source code, documentation and Kubernetes manifests, built from files that already exist and searched by meaning: who calls this, what breaks if it changes, where was it decided.
 
 Both are searched by keyword and by meaning, and a web UI that is part of the binary draws the memory and lights it up as agents recall. You can run X-Ray as a service on Kubernetes, embed it in your own agent as a Go library, or connect an agent to a running one over MCP.
@@ -114,7 +114,7 @@ To give each MCP client a token of its own, which also makes its writes count as
 **A code map from a registry.** Build a map with `xray graph snapshot`, pack it with `make maps-image MAPS="<label>"`, push the image, and give the memory server a cell that points at it by digest. The server pulls the image, registers the map, and answers code questions over MCP and by voice:
 
 ```yaml
-apiVersion: xray.ai/v1
+apiVersion: xray.triageagent.dev/v1
 kind: MemoryCell
 metadata: {name: map-myrepo}
 spec:

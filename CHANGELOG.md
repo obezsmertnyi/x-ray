@@ -7,6 +7,7 @@
 - **A voice session opens knowing the user's past.** The system prompt now carries the user's newest private notes (ten) and session memories (three), one line each, so the model starts with what it saved before instead of having to guess to search.
 
 ### Changed
+- **The API group is `xray.triageagent.dev`** (ADR-059), not `xray.ai`: `apiVersion: xray.triageagent.dev/v1`, the CRD `memorycells.xray.triageagent.dev`, the cell labels and the chart's RBAC. Breaking and without a conversion: an existing install applies the new CRD (Helm installs `crds/` only on a first install) and copies its cells across, changing `apiVersion`. The Triage core shares the type, so a deployment that runs both moves both.
 - **The default Gemini Live model is `gemini-3.8-live`** (the `--voice-model` default and the chart's `systemConfig.voiceModel`; it was `google/gemini-live-2.5-flash-native-audio`). The `system_configuration` cell still overrides it per session. On Vertex it is served only on the multi-regions `eu` and `us`, so run voice there with the new `--voice-location` (default: `--gcp-location`, which keeps the embeddings location). Affective dialog is not sent to a Gemini 3 model, which closes the session when it is set. The genai SDK moves from v1.45 to v1.72, the version that reaches the multi-region endpoints.
 
 ### Fixed

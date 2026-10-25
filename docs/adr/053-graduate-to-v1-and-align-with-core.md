@@ -1,6 +1,6 @@
 # ADR-053: Graduate MemoryCell to v1 and Align the Memory Store with the Core
 
-**Status:** Implemented
+**Status:** Implemented (the group has since moved to `xray.triageagent.dev`, ADR-059)
 **Date:** 2026-10-24
 **Builds on:** [ADR-020](020-associative-memory-architecture.md) (kinds), [ADR-023](023-hnsw-lock-free-rebuild.md) (index rebuild), [ADR-030](030-hybrid-search-scoring.md) (hybrid search), [ADR-037](037-scope-as-privacy-axis.md) (scope)
 

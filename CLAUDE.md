@@ -40,7 +40,7 @@ xray/
 ├── pkg/codegraph/           # Public library: the code graph, in the caller's process
 ├── pkg/xray/                # Public Go SDK: a typed MCP client, and the Memory and CodeGraph interfaces both implement
 ├── ui/                      # Web UI: Next.js static export, embedded into the binary
-├── api/v1/            # MemoryCell CRD (xray.ai/v1, short: mcell)
+├── api/v1/            # MemoryCell CRD (xray.triageagent.dev/v1, short: mcell)
 ├── charts/                  # Helm charts
 │   ├── xray/                # Main deployment chart
 │   └── xray-graph/          # code-graph snapshot server chart
@@ -245,7 +245,7 @@ make version           # Show computed version string
 
 ## Memory Cell CRD (Kubernetes)
 
-X-Ray can sync memory from `MemoryCell` custom resources (`xray.ai/v1`, short: `mcell`, defined in `api/v1/`):
+X-Ray can sync memory from `MemoryCell` custom resources (`xray.triageagent.dev/v1`, short: `mcell`, defined in `api/v1/`):
 - Each cell is an independent k8s object with embedded vector embedding
 - Fields: kind, scope, subject, title, content, confidence, status, tags, links
 - Scope values (ADR-037): `public` (shared — visible on the graph and in user-facing search; the default for normal memory) or `private` (isolated to its `subject` — a person's userHash, or a reserved owner like `agent`/`system`; hidden from everyone else). `system_configuration` cells are always treated as private regardless of scope.

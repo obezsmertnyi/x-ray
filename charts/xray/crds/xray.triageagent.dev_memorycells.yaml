@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.0
-  name: memorycells.xray.ai
+  name: memorycells.xray.triageagent.dev
 spec:
-  group: xray.ai
+  group: xray.triageagent.dev
   names:
     kind: MemoryCell
     listKind: MemoryCellList

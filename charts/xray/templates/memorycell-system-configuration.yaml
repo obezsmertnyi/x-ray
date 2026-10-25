@@ -1,11 +1,11 @@
-apiVersion: xray.ai/v1
+apiVersion: xray.triageagent.dev/v1
 kind: MemoryCell
 metadata:
   name: xray-system-configuration
   namespace: {{ .Values.namespace }}
   labels:
-    xray.ai/kind: system_configuration
-    xray.ai/managed: "true"
+    xray.triageagent.dev/kind: system_configuration
+    xray.triageagent.dev/managed: "true"
 spec:
   id: xray-system-configuration
   kind: system_configuration
