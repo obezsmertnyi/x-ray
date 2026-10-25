@@ -15,7 +15,13 @@ updates:
   - package-ecosystem: npm
     directory: /ui
     schedule: {interval: weekly}
+    # eslint 10 breaks eslint-plugin-react, which eslint-config-next bundles; wait for it.
+    ignore:
+      - dependency-name: eslint
+        update-types: [version-update:semver-major]
     groups:
+      react:
+        patterns: [react, react-dom, "@types/react", "@types/react-dom"]
       npm-minor-and-patch:
         update-types: [minor, patch]
   - package-ecosystem: github-actions
