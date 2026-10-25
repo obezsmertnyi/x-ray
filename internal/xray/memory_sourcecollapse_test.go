@@ -2,7 +2,6 @@ package xray
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -154,78 +153,6 @@ func TestMemoryStore_SetLinks(t *testing.T) {
 	require.Len(t, got.Links, 1)
 	assert.Equal(t, "ep1", got.Links[0].ToID)
 	assert.False(t, s.SetLinks("nope", nil))
-}
-
-// ── Reranker hook ──
-
-type fakeReranker struct {
-	calls   int
-	order   []int
-	err     error
-	lastLen int // number of docs the most recent call received
-}
-
-func (f *fakeReranker) Rerank(_ context.Context, _ string, docs []string, topN int) ([]int, error) {
-	f.calls++
-	f.lastLen = len(docs)
-	if f.err != nil {
-		return nil, f.err
-	}
-	out := f.order
-	if len(out) > topN {
-		out = out[:topN]
-	}
-	return out, nil
-}
-
-// TestMemoryStore_Rerank_NotCalledOnLexicalFastPath: a keyword-only store (no
-// embedder) never reaches the fused path, so the reranker is never consulted.
-func TestMemoryStore_Rerank_NotCalledOnLexicalFastPath(t *testing.T) {
-	s := newTestStore()
-	upsertItem(t, s, "a", "stable_fact", "public", "gizmo", "gizmo body", "", nil)
-	upsertItem(t, s, "b", "stable_fact", "public", "gizmo two", "another gizmo", "", nil)
-	fr := &fakeReranker{order: []int{1, 0}}
-	s.SetReranker(fr)
-	res := s.Search(context.Background(), "gizmo", "", "", 10)
-	require.Len(t, res, 2)
-	assert.Equal(t, 0, fr.calls, "the lexical short-circuit must never pay for a rerank")
-}
-
-// TestMemoryStore_rerank_ReordersAndFallsBack exercises the step directly:
-// the reranker's order wins, and an error keeps the incoming order.
-func TestMemoryStore_rerank_ReordersAndFallsBack(t *testing.T) {
-	s := newTestStore()
-	items := []*MemoryItem{{ID: "a", Title: "a"}, {ID: "b", Title: "b"}, {ID: "c", Title: "c"}}
-
-	s.SetReranker(&fakeReranker{order: []int{2, 0, 1}})
-	got := s.rerank(context.Background(), "q", items, 2)
-	require.Len(t, got, 2)
-	assert.Equal(t, "c", got[0].ID)
-	assert.Equal(t, "a", got[1].ID)
-
-	s.SetReranker(&fakeReranker{err: errors.New("sidecar down")})
-	got = s.rerank(context.Background(), "q", items, 2)
-	require.Len(t, got, 3, "on error the fused order is returned untouched")
-	assert.Equal(t, "a", got[0].ID)
-}
-
-// TestMemoryStore_rerank_WindowsToLimitTimesFanout: rerank must not hand the
-// cross-encoder the whole fused pool — only the first limit*rerankFanout
-// items — even though a fallback (no reranker/error/empty order) still
-// returns the untouched, unwindowed pool.
-func TestMemoryStore_rerank_WindowsToLimitTimesFanout(t *testing.T) {
-	s := newTestStore()
-	wide := make([]*MemoryItem, 10)
-	for i := range wide {
-		id := string(rune('a' + i))
-		wide[i] = &MemoryItem{ID: id, Title: id}
-	}
-
-	fr := &fakeReranker{order: []int{0, 1}}
-	s.SetReranker(fr)
-	got := s.rerank(context.Background(), "q", wide, 2)
-	require.Len(t, got, 2)
-	assert.Equal(t, 6, fr.lastLen, "with limit=2 and rerankFanout=3, the reranker must see exactly 6 documents")
 }
 
 func countID(ids []string, id string) int {

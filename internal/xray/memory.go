@@ -170,12 +170,6 @@ type MemoryStore struct {
 	// string; "" means off, which is the default and byte-identical to before.
 	sourceRel atomic.Value
 
-	// reranker, when set (SetReranker), re-orders the fused candidate pool
-	// with a cross-encoder before the final cut. Only consulted on the fused
-	// path — the lexical confident short-circuit never pays for it. Set once
-	// at startup before serving, like itemCreateHook.
-	reranker vectorstore.Reranker
-
 	// fanout overrides the default candidateFanout over-fetch factor (see
 	// SetCandidateFanout). 0 means "unset" — Search falls back to the
 	// candidateFanout constant.
@@ -200,7 +194,7 @@ type MemoryStore struct {
 }
 
 // candidateFanout is how many times `limit` Search pulls from each channel
-// when a second-stage step (source collapse or rerank) will shrink the pool
+// when a second-stage step (source collapse) will shrink the pool
 // again. Three is EverMemOS's own ratio (top-30 pooled → 10 read).
 const candidateFanout = 3
 
@@ -216,12 +210,8 @@ func (s *MemoryStore) sourceCollapseRel() string {
 	return v
 }
 
-// SetReranker installs a cross-encoder for the fused search path. Call once
-// at startup before the store serves traffic; nil leaves RRF order as-is.
-func (s *MemoryStore) SetReranker(r vectorstore.Reranker) { s.reranker = r }
-
 // SetCandidateFanout overrides the over-fetch factor Search multiplies limit
-// by when a second-stage step (source collapse or rerank) is going to shrink
+// by when a second-stage step (source collapse) is going to shrink
 // the candidate pool again — see candidateFanout. It exists because source
 // collapse changes the pool's unit: Search's channels rank *facts*, but a
 // caller wants *sources* (episodes) back, and one source can dominate the
@@ -462,7 +452,7 @@ func (s *MemoryStore) search(ctx context.Context, query, kind, subject string, l
 	mode := "lexical"
 	defer func() { observability.RecordMemorySearchDuration(ctx, mode, time.Since(start).Seconds()) }()
 
-	// A second-stage step (source collapse, rerank) shrinks the pool again, so
+	// A second-stage step (source collapse) shrinks the pool again, so
 	// each channel over-fetches for it; otherwise the pool is exactly limit.
 	collapseRel := s.sourceCollapseRel()
 	want := s.poolSize(limit)
@@ -474,11 +464,11 @@ func (s *MemoryStore) search(ctx context.Context, query, kind, subject string, l
 	// No semantic store, or lexical already has a confident (full-coverage) hit
 	// and the short-circuit is enabled (SetLexicalShortCircuit, on by default)
 	// → return lexical (the fast path: no Vertex AI round-trip, no looser
-	// recall, and never a reranker call). See shouldShortCircuit and
+	// recall). See shouldShortCircuit and
 	// SetLexicalShortCircuit for why this decision needs to be switchable.
 	if shouldShortCircuit(s.cells != nil, lexConfident, s.alwaysFuse.Load()) {
 		s.TrackKWVoiceHit()
-		pool := s.shape(s.collapseToSources(lexItems, collapseRel, subject, want), false)
+		pool := s.shape(s.collapseToSources(lexItems, collapseRel, subject, want))
 		if len(pool) > limit {
 			pool = pool[:limit]
 		}
@@ -494,11 +484,7 @@ func (s *MemoryStore) search(ctx context.Context, query, kind, subject string, l
 		pool = fuseRRF(lexItems, semItems, want)
 	}
 	pool = s.collapseToSources(pool, collapseRel, subject, want)
-	if s.noShaping.Load() || s.reranker == nil {
-		pool = s.shape(pool, false)
-	} else {
-		pool = s.rerank(ctx, query, s.shape(pool, true), limit)
-	}
+	pool = s.shape(pool)
 	if len(pool) > limit {
 		pool = pool[:limit]
 	}
@@ -557,52 +543,6 @@ func (s *MemoryStore) collapseToSources(items []*MemoryItem, rel, subject string
 		clone := *src
 		clone.Via = it.ID
 		out = append(out, &clone)
-	}
-	return out
-}
-
-// rerankFanout bounds how much of the incoming (already RRF-ordered,
-// collapsed) pool rerank actually sends to the cross-encoder: only the first
-// limit*rerankFanout items. The reranker never needs more than a few times
-// limit candidates to pick the best limit of them — EverMemOS reranks a
-// pooled top-30 down to a served 10 — but a wide SetCandidateFanout (needed
-// so source collapse can find enough distinct sources) can hand rerank a
-// pool a few hundred items deep. Without this cap every one of those items
-// pays the cross-encoder's per-document cost even though the tail was
-// already ranked below the window by fusion and gets truncated to limit
-// right after rerank returns anyway.
-const rerankFanout = 3
-
-// rerank re-orders the top limit*rerankFanout items of the incoming (already
-// RRF-ordered, collapsed) pool with the installed cross-encoder and keeps the
-// best limit of them; anything beyond that window is dropped before it ever
-// reaches the sidecar. Without a reranker, or when the call fails or returns
-// no order, the incoming order is returned untouched and in full — not
-// windowed — so a sidecar outage degrades to today's behaviour rather than to
-// a truncated or empty result.
-func (s *MemoryStore) rerank(ctx context.Context, query string, items []*MemoryItem, limit int) []*MemoryItem {
-	if s.reranker == nil || len(items) <= 1 {
-		return items
-	}
-	window := items
-	if cutoff := limit * rerankFanout; cutoff > 0 && len(window) > cutoff {
-		window = window[:cutoff]
-	}
-	docs := make([]string, len(window))
-	for i, it := range window {
-		docs[i] = it.Title + "\n" + it.Content
-	}
-	idx, err := s.reranker.Rerank(ctx, query, docs, limit)
-	if err != nil {
-		s.logger.Warn().Err(err).Msg("rerank failed — keeping fused order")
-		return items
-	}
-	if len(idx) == 0 {
-		return items
-	}
-	out := make([]*MemoryItem, 0, len(idx))
-	for _, i := range idx {
-		out = append(out, window[i])
 	}
 	return out
 }

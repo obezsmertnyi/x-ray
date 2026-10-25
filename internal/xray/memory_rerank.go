@@ -72,12 +72,12 @@ func (s *MemoryStore) SetRecallShaping(on bool) { s.noShaping.Store(!on) }
 func (s *MemoryStore) SetWriteDedup(on bool) { s.noWriteDedup.Store(!on) }
 
 // poolSize is how many candidates each channel fetches for limit: the
-// second-stage fanout when collapse or the cross-encoder runs (exactly that
+// second-stage fanout when source collapse runs (exactly that
 // when SetCandidateFanout was called), and otherwise at least
 // limit*rerankPoolFactor (capped) so the re-rank has something to promote.
 func (s *MemoryStore) poolSize(limit int) int {
 	want := limit
-	if s.sourceCollapseRel() != "" || s.reranker != nil {
+	if s.sourceCollapseRel() != "" {
 		want = limit * s.candidateFanoutFactor()
 		if s.fanout.Load() != 0 {
 			return want // an explicit fanout is taken as given
@@ -167,14 +167,10 @@ func stateRerank(pool []*MemoryItem, now time.Time) []*MemoryItem {
 }
 
 // shape applies the recall shaping to pool: collapse near-duplicates, then
-// re-rank by state unless a cross-encoder already ordered it (rerankedBy).
-func (s *MemoryStore) shape(pool []*MemoryItem, rerankedBy bool) []*MemoryItem {
+// re-rank by state.
+func (s *MemoryStore) shape(pool []*MemoryItem) []*MemoryItem {
 	if s.noShaping.Load() {
 		return pool
 	}
-	pool = collapseNearDuplicates(pool)
-	if !rerankedBy {
-		pool = stateRerank(pool, time.Now())
-	}
-	return pool
+	return stateRerank(collapseNearDuplicates(pool), time.Now())
 }

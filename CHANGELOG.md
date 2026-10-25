@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Removed
+- **The cross-encoder reranker hook.** `vectorstore.Reranker`, `HTTPReranker`, `MemoryStore.SetReranker` and the rerank step in `Search` were never wired to a flag or a server, so nothing could turn them on. Near-duplicate collapse and the state-aware re-rank are unchanged. A handful of unreachable helpers went with it (the `ReadSnapshot*From` wrappers, `NewReadToolsServer`, Azure's duplicate `handleLogout`).
+
 ## [2.2.0] - 2026-10-25
 
 ### Fixed
