@@ -3,15 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>xray-memory Extraction</title>
+<title>X-Ray Extraction</title>
 <!-- Same favicon as the graph UI (index.html), inlined for the same reason. -->
 <link rel="icon" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAABTVBMVEUAAAAMDAwKCg8KCg8KCg8KCg8KChAJCQ8JCQ8JCQ8KCg8KCg8MDAwKChAKCg8KCg8KChAKCg8NDQ0JCRAKCg8KCg8RMjIiloootaMRMjEpJD53Y7OPd9UpIz0s0Lst1L8sz7sRMTGkiPWni/qjiPQoIzwilYl2Y7IntaUotqSPd9ePeNYnopaAbsJ2YrEt1MA+wcMbOEAnLUKPkeenjPonIjslo5U4xb5FxctLucgdN0ElLkGAl9+Pmu6Vj+2CbsQWNzpCvMJOwc9TtcwfNkIjL0B5nNuGnuqJlOYtLUkYNjtLuMVWvNNgrctVZXRVY3J0n9F+o+aBmOIrLkgbNj1ZsMaIl6mKlaaIl6p6mtUoLkNUZXJYYnRTZHFYY3VZr8WHl6mJlqp6m9ZWZHVWYnN0n9IlpJaVju2DbcU+wsOPkugno5eBbsMilIgQMDCxyqafAAAAFXRSTlMAFoTP9M6DVfJU/vEVgtDzgfAUUs1Xa/zlAAABWklEQVQ4y52T51PCQBDFlxIMzaCwAgIGDBAr2HvvvaKx967w/380d/HCzeDFGd+X3Oz75bJ3LwsA4HJ7vNggr+RzAVWTjALJfuoHUKiASbhkdFAwBG50VBia6bMtnogn6+X2VDqVoSsJFOp3qKqazdl+p6Zp+QLtE2glrhIVGZDSiHS6toAuCnQzoIcCvRxQpEAfA/opUOKAZNb0ywODlj80PEJ6GOUAzBUTY+MTk1NkPT0zOzefLlk+A4gWFpeWVxBX19Y3NutVDsCt7Z3dvf2Dw6Nj/B3AysmpYZydX6AIwEvD1BWKgWsC3IiByu2dYdw/CD9Bmnx8ehY26XhMM+4X7qJe31jcPwCNu/zOrvpDs+NGPu5Ptu3Xf+OuMkDn45btuLM1BmTydtxB8LC4q7X62Qo6i1sCn/NvH/ljcFpaAfxOoxclw+kPCt+PWuMdCseURleJRcz94Ru6hm6HABrBCQAAAABJRU5ErkJggg==" />
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' x2='1'><stop offset='0' stop-color='%232dd4bf'/><stop offset='1' stop-color='%23a78bfa'/></linearGradient></defs><rect width='32' height='32' rx='7' fill='%230a0a0f'/><path d='M8.5 8.5L23.5 23.5M23.5 8.5L8.5 23.5' stroke='url(%23g)' stroke-width='2.4' stroke-linecap='round'/><circle cx='8.5' cy='8.5' r='3.4' fill='%232dd4bf'/><circle cx='8.5' cy='23.5' r='3.4' fill='%232dd4bf'/><circle cx='23.5' cy='8.5' r='3.4' fill='%23a78bfa'/><circle cx='23.5' cy='23.5' r='3.4' fill='%23a78bfa'/><circle cx='16' cy='16' r='2.6' fill='%238a95a6'/></svg>" />
 <!--
   The extraction layer, explained. Lives beside the graph UI (index.html) and is
-  published as an Artifact; the graph UI's About button links to it. Same design
-  system as the xray-recall Pipeline sheet. Anthropic bone white, Book cloth and
-  Manila accents, Newsreader / Archivo / IBM Plex Mono, so the two read as one
+  published as an Artifact; the graph UI's About button links to it. Same design system:
+  Anthropic bone white, Book cloth and Manila accents, Newsreader / Archivo / IBM Plex Mono, so the two read as one
   set of documents.
 -->
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -292,10 +291,10 @@
   <div class="sheet">
 
   <header class="top">
-    <p class="eyebrow"><span>xray-memory</span><span>derived memory</span><span>one binary, two modes</span></p>
+    <p class="eyebrow"><span>X-Ray</span><span>derived memory</span><span>one binary, two modes</span></p>
     <h1>Parse, embed, snapshot, serve</h1>
     <p class="standfirst">
-      xray-memory serves <em>derived</em> memory: a semantic graph reconstructed from repositories,
+      X-Ray serves <em>derived</em> memory: a semantic graph reconstructed from repositories,
       documentation and Kubernetes manifests. Nothing in it is authored, so anything in it can be thrown
       away and rebuilt. This page is how that rebuild works, end to end, what the parser reads, what the
       embedder is given, what a <code>.gob.gz</code> actually holds, and what happens when you type a query.
@@ -317,7 +316,7 @@
     <div class="prose">
       <p>
         Tree-sitter is a parser generator. Each language ships a grammar; the grammar is compiled into the
-        xray-memory binary, so there is nothing to install alongside it and no language server to run. Given a
+        X-Ray binary, so there is nothing to install alongside it and no language server to run. Given a
         file, it produces a full syntax tree, not a regex guess at what a function looks like, but the
         language's own structure, with exact line ranges for every declaration.
       </p>
@@ -480,7 +479,7 @@
     </div>
 
     <div class="qn">
-      <div class="qn-line"><span class="seg-repo">xray-memory</span><span class="seg-sep">//</span><span class="seg-path">internal/engine/indexer.go</span><span class="seg-sep">::</span><span class="seg-sym">Indexer.Graph</span></div>
+      <div class="qn-line"><span class="seg-repo">x-ray</span><span class="seg-sep">//</span><span class="seg-path">internal/engine/indexer.go</span><span class="seg-sep">::</span><span class="seg-sym">Indexer.Graph</span></div>
       <div class="qn-keys">
         <div class="k-repo"><b>map label</b> &#183; many repos, one index, no collision</div>
         <div class="k-path"><b>repo-relative path</b></div>
@@ -582,7 +581,7 @@
 
       <h3>Why the slice happens in this process</h3>
       <p>
-        The OpenAI-compatible API has a <code>dimensions</code> parameter, and xray-memory deliberately does
+        The OpenAI-compatible API has a <code>dimensions</code> parameter, and X-Ray deliberately does
         not send it. Two gateways decided that: llama.cpp ignores the parameter and returns native dimensions
         anyway, and Ollama truncates without renormalizing afterwards, which yields measurably worse vectors
         than the proper procedure. So the reduction happens here, in <code>truncateNormalize</code>: keep the
@@ -633,7 +632,7 @@
     <div class="tablewrap">
       <table>
         <caption>
-          <code>Meta</code> is opaque: attributes xray-memory round-trips for other tools and never reads
+          <code>Meta</code> is opaque: attributes X-Ray round-trips for other tools and never reads
           itself. <code>HNSW</code> is additive, an older snapshot without it simply decodes as absent and the
           index is rebuilt on load.
         </caption>
@@ -660,10 +659,10 @@
     </div>
 
     <pre><span class="cm"># parse, embed and write ~/.xray-maps/myapp.graph.gob.gz</span>
-xray-memory snapshot -repo myapp=/path/to/myapp -snapshot-dir ~/.xray-maps
+xray graph snapshot -repo myapp=/path/to/myapp -snapshot-dir ~/.xray-maps
 
 <span class="cm"># serve every snapshot in that directory, parser-free</span>
-xray-memory serve-snapshots -snapshot-dir ~/.xray-maps -addr :8084</pre>
+xray graph serve-snapshots -snapshot-dir ~/.xray-maps -addr :8084</pre>
 
     <div class="split" style="margin-top:34px">
       <div>
@@ -857,9 +856,9 @@ xray-memory serve-snapshots -snapshot-dir ~/.xray-maps -addr :8084</pre>
     </div>
 
     <pre><span class="cm"># after an edit, from anywhere</span>
-xray-memory update path/to/file.go
+xray graph update path/to/file.go
 
-<span class="cm"># or let the agent do it: `xray-memory install` drops a PostToolUse</span>
+<span class="cm"># or let the agent do it: `xray graph install` drops a PostToolUse</span>
 <span class="cm"># hook into .claude/ that calls update_code_graph on every write</span></pre>
   </section>
 
@@ -1189,7 +1188,7 @@ xray-memory update path/to/file.go
   </section>
 
   <footer>
-    xray-memory &#183; everything above runs on this machine; only the embedding endpoint is a separate process, and it is yours.<br>
+    X-Ray &#183; everything above runs on this machine; only the embedding endpoint is a separate process, and it is yours.<br>
     internal/parser &#183; internal/graph &#183; internal/index &#183; internal/engine &#183; internal/hub
   </footer>
 

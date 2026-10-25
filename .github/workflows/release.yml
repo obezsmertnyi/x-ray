@@ -153,8 +153,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Release notes from the changelog
+      run: |
+        awk -v v="${GITHUB_REF_NAME#v}" '/^## \[/ {p = index($0, "[" v "]") > 0; next} p' CHANGELOG.md > notes.md
+        test -s notes.md
+
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/')
       with:
-        generate_release_notes: true
+        body_path: notes.md

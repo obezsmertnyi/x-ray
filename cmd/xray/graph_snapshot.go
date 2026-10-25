@@ -53,7 +53,7 @@ func (s summaryFlag) Set(v string) error {
 func runSnapshot(argv []string) error {
 	fs := flag.NewFlagSet("snapshot", flag.ExitOnError)
 	repos := fs.String("repo", ".", "comma-separated repo paths (label=path or path); each becomes one snapshot")
-	snapDir := fs.String("snapshot-dir", ".xray-memory-cache", "directory to write <label>.graph.gob.gz snapshots into")
+	snapDir := fs.String("snapshot-dir", ".xray-cache", "directory to write <label>.graph.gob.gz snapshots into")
 	endpoint := fs.String("embedding-endpoint", "http://localhost:8090", "OpenAI-compatible /v1/embeddings endpoint (llama.cpp)")
 	model := fs.String("embedding-model", "nomic", "embedding model name")
 	dims := fs.Int("embedding-dims", 256, "embedding output dimensions (Matryoshka truncation)")

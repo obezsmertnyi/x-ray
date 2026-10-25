@@ -159,7 +159,7 @@ func main() {
 	flag.StringVar(&githubOrg, "github-org", "", "Required GitHub org for access")
 	flag.StringVar(&githubTeam, "github-team", "", "Optional GitHub team slug within org")
 	flag.StringVar(&publicURL, "public-url", "", "Externally reachable base URL for OAuth callbacks (e.g. https://xray.example.com)")
-	flag.StringVar(&uiCallbackOrigins, "ui-callback-origins", "", "Comma-separated origins a login may hand the session token to via ?ui=<origin>, for a UI served from a DIFFERENT host than this server (e.g. https://xray-ui.example.com,http://localhost:8080). Empty (default) disables the hand-off: logins always land on this server's own \"/\" and authenticate by cookie. Each entry is matched as an exact scheme+host+port; anything unlisted is ignored, so this can never become an open redirect for a freshly minted token.")
+	flag.StringVar(&uiCallbackOrigins, "ui-callback-origins", "", "Comma-separated origins a login may hand the session token to via ?ui=<origin>, for a UI served from a DIFFERENT host than this server (e.g. https://ui.example.com,http://localhost:8080). Empty (default) disables the hand-off: logins always land on this server's own \"/\" and authenticate by cookie. Each entry is matched as an exact scheme+host+port; anything unlisted is ignored, so this can never become an open redirect for a freshly minted token.")
 	flag.StringVar(&azureClientID, "azure-client-id", "", "Azure AD OAuth app client ID")
 	flag.StringVar(&azureClientSecret, "azure-client-secret", "", "Azure AD OAuth app client secret")
 	flag.StringVar(&azureTenantID, "azure-tenant-id", "", "Azure AD tenant ID")

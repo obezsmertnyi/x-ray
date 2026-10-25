@@ -207,7 +207,7 @@ func runServiceMap(argv []string) error {
 	fs := flag.NewFlagSet("servicemap", flag.ExitOnError)
 	in := fs.String("in", "", "path to the service-graph JSON file (array of {name, calls, called_by}) (required)")
 	label := fs.String("label", "", "map label / name (default: input file base name without extension)")
-	snapDir := fs.String("snapshot-dir", ".xray-memory-cache", "directory to write <label>.graph.gob.gz into")
+	snapDir := fs.String("snapshot-dir", ".xray-cache", "directory to write <label>.graph.gob.gz into")
 	endpoint := fs.String("embedding-endpoint", "http://localhost:8090", "OpenAI-compatible /v1/embeddings endpoint")
 	model := fs.String("embedding-model", "nomic", "embedding model name")
 	dims := fs.Int("embedding-dims", 256, "embedding output dimensions (Matryoshka truncation)")
