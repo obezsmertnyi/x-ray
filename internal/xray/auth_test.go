@@ -16,14 +16,14 @@ import (
 // ── sessionStore ──────────────────────────────────────────────────────────────
 
 func newTestSessionStore() *sessionStore {
-	return &sessionStore{entries: make(map[string]sessionEntry)}
+	return &sessionStore{entries: make(map[string]sessionEntry), restored: make(map[string]sessionEntry)}
 }
 
 // newPersistedSessionStore returns a store with CR-status persistence enabled
 // (ADR-047): a fixed HMAC key so token hashing is deterministic across the
 // simulated restart. onChange is left nil — tests drive snapshot/restore directly.
 func newPersistedSessionStore() *sessionStore {
-	return &sessionStore{entries: make(map[string]sessionEntry), hmacKey: []byte("test-session-hmac-key")}
+	return &sessionStore{entries: make(map[string]sessionEntry), restored: make(map[string]sessionEntry), hmacKey: []byte("test-session-hmac-key")}
 }
 
 func TestSessionStore_CreateAndValidate(t *testing.T) {
@@ -207,7 +207,7 @@ func TestSessionStore_RestoreSkipsExpiredRows(t *testing.T) {
 			ExpiresAt:   time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)},
 	})
 	s.mu.Lock()
-	n := len(s.entries)
+	n := len(s.entries) + len(s.restored)
 	s.mu.Unlock()
 	assert.Zero(t, n, "expired status rows must not be restored")
 }
@@ -223,7 +223,7 @@ func TestSessionStore_RestoreDoesNotClobberLiveSession(t *testing.T) {
 	s.restoreSessions(rows) // self-echo
 
 	s.mu.Lock()
-	n := len(s.entries)
+	n := len(s.entries) + len(s.restored)
 	_, rawStillThere := s.entries[token]
 	s.mu.Unlock()
 	assert.Equal(t, 1, n, "self-echo must not create a duplicate HMAC-keyed entry")
@@ -248,7 +248,7 @@ func TestSessionStore_ValidateRekeysRestoredSession(t *testing.T) {
 	// Before first validate: keyed by HMAC, not raw token.
 	after.mu.Lock()
 	_, rawBefore := after.entries[token]
-	_, hashBefore := after.entries[after.tokenHMAC(token)]
+	_, hashBefore := after.restored[after.tokenHMAC(token)]
 	after.mu.Unlock()
 	assert.False(t, rawBefore, "restored entry is keyed by HMAC, not raw token")
 	assert.True(t, hashBefore, "restored entry present under HMAC key")
@@ -259,10 +259,53 @@ func TestSessionStore_ValidateRekeysRestoredSession(t *testing.T) {
 	// After validate: re-keyed under the raw token.
 	after.mu.Lock()
 	_, rawAfter := after.entries[token]
-	_, hashAfter := after.entries[after.tokenHMAC(token)]
+	_, hashAfter := after.restored[after.tokenHMAC(token)]
 	after.mu.Unlock()
 	assert.True(t, rawAfter, "session re-keyed under raw token after validate")
 	assert.False(t, hashAfter, "stale HMAC key removed after re-key")
+}
+
+// TestSessionStore_PersistedHashIsNotACredential: the HMAC written to CR status
+// must never validate as a session token, before or after the genuine holder's
+// first request, or anyone able to read the status could take over the session.
+func TestSessionStore_PersistedHashIsNotACredential(t *testing.T) {
+	before := newPersistedSessionStore()
+	token := before.create("alice", "github:1")
+	rows := before.snapshotSessions()
+	require.Len(t, rows, 1)
+	hash := rows[0].TokenHMAC
+
+	after := newPersistedSessionStore()
+	after.restoreSessions(rows)
+
+	_, _, ok := after.validate(hash)
+	assert.False(t, ok, "the persisted hash must not validate as a bearer or cookie")
+
+	// The genuine token still works, and the hash is still no credential after it.
+	_, _, ok = after.validate(token)
+	require.True(t, ok)
+	_, _, ok = after.validate(hash)
+	assert.False(t, ok, "the persisted hash must not validate after the session is re-keyed")
+}
+
+// TestSessionStore_RestoredSessionsStaySnapshotted: a restored session nobody has
+// used yet must be written back unchanged, not hashed a second time, or the next
+// replica could not match it.
+func TestSessionStore_RestoredSessionsStaySnapshotted(t *testing.T) {
+	before := newPersistedSessionStore()
+	token := before.create("alice", "github:1")
+	rows := before.snapshotSessions()
+
+	after := newPersistedSessionStore()
+	after.restoreSessions(rows)
+	again := after.snapshotSessions()
+	require.Len(t, again, 1)
+	assert.Equal(t, rows[0].TokenHMAC, again[0].TokenHMAC)
+
+	third := newPersistedSessionStore()
+	third.restoreSessions(again)
+	_, _, ok := third.validate(token)
+	assert.True(t, ok, "a session passed through an unused replica still validates")
 }
 
 // ── OAuth state cookie ──────────────────────────────────────────────────────────

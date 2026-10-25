@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Security
+- **A persisted session hash no longer works as a session token.** Restored sessions sit in their own map and are matched only by the HMAC of the presented token. Before, presenting the HMAC stored in the system configuration cell's status as a bearer token or cookie authenticated as that user until the session expired. Sessions that were restored and never used are also written back unchanged instead of hashed a second time.
+- **`--dev` cannot be combined with a sign-in provider.** The server refuses to start with `--dev` and `--github-client-id` or `--azure-client-id`, so MCP, CORS and the API can no longer follow different authorisation models. `--dev` listening beyond loopback logs a warning.
+- **A sign-in provider needs an org or tenant.** GitHub sign-in without `--github-org` and Entra sign-in without `--azure-tenant-id` refuse to start; `--allow-any-user` admits every account of the provider on purpose. The chart's `github.org` and `github.team` values were never rendered and are removed; set the flags in `args`.
+- **Voice spend limits default to a limit.** `--user-daily-audio-token-limit` defaults to 500000 and `--max-concurrent-voice` to 20 (the chart values with these names were never passed to the binary and are removed). A session over its daily cap is closed by the server 45 seconds after the model is asked to say goodbye, and a concurrency slot is reserved before the session starts so parallel starts cannot exceed the cap.
+
 ## [2.2.0] - 2026-10-25
 
 First public release.

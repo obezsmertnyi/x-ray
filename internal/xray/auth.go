@@ -111,6 +111,11 @@ func stateCookieMatches(r *http.Request, queryState string) bool {
 type sessionStore struct {
 	mu      sync.Mutex
 	entries map[string]sessionEntry
+	// restored holds sessions rehydrated from CR status, keyed by their TokenHMAC.
+	// It is a separate map so that the persisted hash is never itself a valid
+	// credential: validate looks a presented token up in entries by its raw value
+	// and in restored only by HMAC(token).
+	restored map[string]sessionEntry
 	// hmacKey signs session tokens before they are persisted to the
 	// system_configuration CR status, so the raw token never lands in etcd. It is
 	// derived from a stable secret (the OAuth client secret) so the HMAC of a token
@@ -129,7 +134,7 @@ type sessionEntry struct {
 	expiresAt time.Time
 }
 
-var sessions = &sessionStore{entries: make(map[string]sessionEntry)}
+var sessions = &sessionStore{entries: make(map[string]sessionEntry), restored: make(map[string]sessionEntry)}
 
 // SetSessionPersistence enables CR-backed session persistence: tokens are hashed
 // with hmacKey (derived from a stable secret so it survives restarts and matches
@@ -224,6 +229,11 @@ func init() {
 					delete(sessions.entries, k)
 				}
 			}
+			for k, e := range sessions.restored {
+				if now.After(e.expiresAt) {
+					delete(sessions.restored, k)
+				}
+			}
 			sessions.mu.Unlock()
 		}
 	}()
@@ -248,19 +258,21 @@ func (s *sessionStore) create(username, userID string) string {
 // validate returns (username, userID, ok).
 //
 // A session created on this process is keyed by its raw token. A session restored
-// from CR status after a restart (or created on another replica) is keyed by its
-// TokenHMAC, since the raw token is never persisted — so a raw-token miss falls
-// back to an HMAC lookup. On that hit we re-key the entry under the raw token so
-// subsequent requests take the fast path and a later flush re-emits a stable row.
+// from CR status after a restart (or created on another replica) sits in restored,
+// keyed by its TokenHMAC, since the raw token is never persisted — so a raw-token
+// miss falls back to a lookup of HMAC(token) there. On that hit the entry moves to
+// entries under the raw token so subsequent requests take the fast path. The
+// persisted hash itself matches nothing: it is not a key of entries, and
+// HMAC(hash) is not a key of restored.
 func (s *sessionStore) validate(token string) (string, string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.entries[token]
 	if !ok {
 		if h := s.tokenHMAC(token); h != "" {
-			if he, hok := s.entries[h]; hok {
-				delete(s.entries, h)
-				s.entries[token] = he // re-key restored session under its raw token
+			if he, hok := s.restored[h]; hok {
+				delete(s.restored, h)
+				s.entries[token] = he
 				e, ok = he, true
 			}
 		}
@@ -276,6 +288,12 @@ func (s *sessionStore) invalidate(token string) {
 	s.mu.Lock()
 	_, existed := s.entries[token]
 	delete(s.entries, token)
+	if h := s.tokenHMAC(token); h != "" {
+		if _, ok := s.restored[h]; ok {
+			existed = true
+			delete(s.restored, h)
+		}
+	}
 	onChange := s.onChange
 	s.mu.Unlock()
 	if existed && onChange != nil {
@@ -308,13 +326,25 @@ func (s *sessionStore) snapshotSessions() []mcell.UserSession {
 			ExpiresAt:   e.expiresAt.UTC().Format(time.RFC3339),
 		})
 	}
+	for h, e := range s.restored {
+		if now.After(e.expiresAt) {
+			delete(s.restored, h)
+			continue
+		}
+		rows = append(rows, mcell.UserSession{
+			UserHash:    stableUserID(e.userID),
+			TokenHMAC:   h,
+			IdentityEnc: s.encryptIdentity(e.username, e.userID),
+			ExpiresAt:   e.expiresAt.UTC().Format(time.RFC3339),
+		})
+	}
 	return rows
 }
 
 // restoreSessions rehydrates persisted sessions into the in-memory map. Like
 // RestoreStats it runs on every system_configuration watch event (not just at
 // startup), and flushSessions writes that same CR — so each flush echoes back
-// here. We therefore key the live map by TokenHMAC and never overwrite a token we
+// here. We therefore key the restored map by TokenHMAC and never overwrite a token we
 // already hold (the live entry is authoritative; a self-echoed snapshot must not
 // clobber it), nor restore an expired or unparseable row. A genuine restart starts
 // from an empty map and rehydrates fully. Persistence stores only the HMAC, so the
@@ -339,6 +369,9 @@ func (s *sessionStore) restoreSessions(rows []mcell.UserSession) restoreResult {
 		return restoreResult{disabled: true}
 	}
 	var res restoreResult
+	if s.restored == nil {
+		s.restored = make(map[string]sessionEntry)
+	}
 	// Index the tokens we already hold (live, raw) by their HMAC so a self-echoed
 	// row does not create a duplicate keyed by the hash.
 	have := make(map[string]struct{}, len(s.entries))
@@ -358,7 +391,7 @@ func (s *sessionStore) restoreSessions(rows []mcell.UserSession) restoreResult {
 			res.alreadyHeld++
 			continue // already held as a live raw token (self-echo)
 		}
-		if _, ok := s.entries[r.TokenHMAC]; ok {
+		if _, ok := s.restored[r.TokenHMAC]; ok {
 			res.alreadyHeld++
 			continue // already restored under its HMAC key (self-echo)
 		}
@@ -367,7 +400,7 @@ func (s *sessionStore) restoreSessions(rows []mcell.UserSession) restoreResult {
 			res.undecryptable++ // tampered, malformed, or sealed under a different key
 			continue
 		}
-		s.entries[r.TokenHMAC] = sessionEntry{username: username, userID: userID, expiresAt: exp}
+		s.restored[r.TokenHMAC] = sessionEntry{username: username, userID: userID, expiresAt: exp}
 		res.added++
 	}
 	return res

@@ -85,7 +85,7 @@ args:
   # Sign-in, required unless --dev. Create the Secret named by github.secretName
   # (or azure.secretName), set that value, and add:
   # - --public-url=https://xray.example.com
-  # - --github-org=YOUR_GITHUB_ORG
+  # - --github-org=YOUR_GITHUB_ORG      # required with GitHub sign-in (or --allow-any-user)
   #
   # MCP over OAuth on the main port, with a token per user (set mcp.oauth.enabled
   # to true, and remove --mcp-address=:8083 above):
@@ -250,16 +250,12 @@ voice:
   geminiApiKey: ""
   model: ""
   name: "Kore"
-  # Flag default for the per-user daily Gemini Live AUDIO token cap (ADR-042):
-  # audio-in + audio-out tokens/day (0 = unlimited). Audio is ~all of voice cost
-  # and equals the Live Audio billing SKUs, so this is directly reconcilable.
-  # 500000 audio tokens ≈ $1.50–3.00/user/day at observed audio rates.
-  # systemConfig.maxUserDailyAudioTokens overrides this in-cluster when non-zero.
-  # NOTE: this is AUDIO tokens, not raw tokens — a much larger real budget than the
-  # old userDailyTokenLimit, since audio is a fraction of each turn.
-  userDailyAudioTokenLimit: 500000
-  # Cap on simultaneous voice sessions across all users (0 = unlimited).
-  maxConcurrent: 20
+  # Voice spend limits are flags in the args list above, and both default to a
+  # limit: --user-daily-audio-token-limit=500000 (audio tokens in and out per user
+  # and UTC day, about $1.50 to $3.00 at observed rates; 0 = unlimited) and
+  # --max-concurrent-voice=20 (simultaneous sessions across all users; 0 =
+  # unlimited). systemConfig.maxUserDailyAudioTokens overrides the daily cap
+  # in-cluster when non-zero.
   # Headroom token compression (ADR-038): max chars per search-result item
   # content after markdown-noise stripping, bounding LLM context cost. 0
   # disables it. systemConfig.maxItemContentChars overrides this for voice
@@ -457,10 +453,10 @@ metrics:
 # GitHub OAuth
 # kubectl create secret generic github-oauth -n xray \
 #   --from-literal=GITHUB_CLIENT_ID=<id> --from-literal=GITHUB_CLIENT_SECRET=<secret>
-# WARNING: leave github.org empty only if you intentionally allow any GitHub user to log in.
+# Restrict who may sign in with the args list: --github-org=YOUR_ORG and, optionally,
+# --github-team=SLUG. With a provider and no org the server refuses to start;
+# --allow-any-user admits every GitHub account.
 github:
-  org: ""                 # Required GitHub org for access — empty = any GitHub user
-  team: ""                # Optional team slug within org — empty = no team restriction
   # Name of the Secret holding GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET. Empty = no
   # GitHub sign-in. When set, the Secret must exist before the pod starts.
   secretName: ""
@@ -469,7 +465,8 @@ github:
 # kubectl create secret generic azure-oauth -n xray \
 #   --from-literal=AZURE_CLIENT_ID=<id> --from-literal=AZURE_CLIENT_SECRET=<secret> \
 #   --from-literal=AZURE_TENANT_ID=<tenant>
-# WARNING: omitting AZURE_TENANT_ID from the Secret means any Entra user can log in.
+# Without AZURE_TENANT_ID in the Secret the server refuses to start; --allow-any-user
+# admits every Entra account.
 azure:
   # Name of the Secret holding AZURE_CLIENT_ID, AZURE_CLIENT_SECRET and
   # AZURE_TENANT_ID. Empty = no Entra sign-in.

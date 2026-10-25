@@ -155,6 +155,7 @@ type VoiceManager struct {
 	affectiveDialog          bool   // --voice-affective-dialog: model detects emotional tone and adapts (native-audio)
 	proactiveAudio           bool   // --voice-proactive-audio: model may stay silent on out-of-context/background speech (native-audio)
 	maxConcurrent            int    // cap on simultaneous voice sessions; 0 = unlimited
+	pendingSlots             int    // sessions admitted but not yet registered; counts against maxConcurrent
 	upgrader                 websocket.Upgrader
 	startLimiter             *keyedRateLimiter // per-user/IP session-start rate limit
 	logger                   zerolog.Logger
@@ -367,17 +368,33 @@ func (m *VoiceManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		systemPrompt += "\n\n" + who + " is currently focusing on specific items pinned in their X-Ray view. Call get_pinned_items to retrieve exactly those items when they ask about what they are looking at, their pinned items, or related topics."
 	}
 
-	// Cap simultaneous sessions to bound goroutines, memory, and Gemini spend.
+	// Cap simultaneous sessions to bound goroutines, memory, and Gemini spend. The
+	// slot is reserved here, under the same lock that counts, and released once the
+	// session is registered or the start fails, so parallel starts cannot all pass
+	// the check.
+	slotHeld := false
 	if m.maxConcurrent > 0 {
 		m.mu.Lock()
-		active := len(m.sessions)
-		m.mu.Unlock()
+		active := len(m.sessions) + m.pendingSlots
 		if active >= m.maxConcurrent {
+			m.mu.Unlock()
 			m.logger.Warn().Int("active", active).Int("max", m.maxConcurrent).Msg("voice session rejected: concurrency cap reached")
 			http.Error(w, "server busy: too many active voice sessions", http.StatusServiceUnavailable)
 			return
 		}
+		m.pendingSlots++
+		m.mu.Unlock()
+		slotHeld = true
 	}
+	releaseSlot := func() {
+		if slotHeld {
+			m.mu.Lock()
+			m.pendingSlots--
+			m.mu.Unlock()
+			slotHeld = false
+		}
+	}
+	defer releaseSlot()
 
 	// Echo the credential subprotocol back when the client offered one. RFC 6455
 	// lets a server select none, but a browser that sent a subprotocol list and
@@ -432,6 +449,10 @@ func (m *VoiceManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	m.memory.TrackVoiceCall()
 	m.mu.Lock()
 	m.sessions[id] = session
+	if slotHeld {
+		m.pendingSlots--
+		slotHeld = false
+	}
 	m.mu.Unlock()
 
 	<-session.done
@@ -1026,10 +1047,24 @@ func (s *VoiceSession) pushQuota() {
 		s.liveMu.Unlock()
 		if err != nil {
 			s.logger.Warn().Err(err).Msg("failed to inject over-limit farewell — forcing hangup")
-			s.pendingHangup.Store(true) // safety net: ensure the session still ends
+			s.pendingHangup.Store(true)
+			s.scheduleHangup()
+			return
 		}
+		// The farewell relies on the model calling end_session. If it does not
+		// within the grace period the session is closed anyway: the cap is the
+		// server's, not the model's.
+		time.AfterFunc(limitFarewellGrace, func() {
+			s.logger.Info().Msg("daily token limit: farewell not finished in time — closing the session")
+			s.pendingHangup.Store(true)
+			s.scheduleHangup()
+		})
 	}
 }
+
+// limitFarewellGrace is how long the model gets to save, say goodbye and end the
+// session after the daily cap is reached before the server closes it.
+const limitFarewellGrace = 45 * time.Second
 
 // modalitySplit sums a ModalityTokenCount slice into a modality→tokens map, keyed
 // by the lower-cased SDK modality string (e.g. "audio", "text"). A nil/empty slice

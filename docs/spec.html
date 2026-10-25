@@ -512,8 +512,8 @@ spec:
   <p>The voice tools are <code>search_memory</code>, <code>list_memory</code>, <code>get_memory</code>, <code>fetch_memory</code>, <code>recent_memory</code>, <code>upsert_memory</code>, <code>save_memory</code>, <code>delete_memory</code> and <code>end_session</code>. Voice writes are private to the user. When a map is loaded the graph tools are available to the model too.</p>
   <h3>Limits</h3>
   <ul>
-    <li><code>--user-daily-audio-token-limit</code>: audio tokens, in and out, a user may spend per UTC day. 0 is unlimited. The remaining amount is pushed to the browser after each turn.</li>
-    <li><code>--max-concurrent-voice</code>: simultaneous sessions across all users.</li>
+    <li><code>--user-daily-audio-token-limit</code>: audio tokens, in and out, a user may spend per UTC day. Default 500000; 0 is unlimited. At the cap the model is asked to save and say goodbye, and the server closes the session if it has not ended within 45 seconds. The remaining amount is pushed to the browser after each turn.</li>
+    <li><code>--max-concurrent-voice</code>: simultaneous sessions across all users. Default 20; 0 is unlimited. A slot is reserved before the session starts, so parallel starts cannot pass the check together.</li>
     <li><code>--voice-max-output-tokens</code>: output cap per turn, 8192 by default, so a runaway turn fails fast.</li>
   </ul>
   <p>Voice needs Gemini credentials: <code>--gcp-project</code> for Vertex AI, or <code>--gemini-api-key</code> for the Google AI API. Without either, the voice route is off.</p>

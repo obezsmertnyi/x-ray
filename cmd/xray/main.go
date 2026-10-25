@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"flag"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -108,6 +109,7 @@ func main() {
 		azureClientSecret         string
 		azureTenantID             string
 		dev                       bool
+		allowAnyUser              bool
 		mcpOAuth                  bool
 		mcpResourceURL            string
 		mcpTokenTTL               time.Duration
@@ -140,8 +142,8 @@ func main() {
 	flag.StringVar(&geminiAPIKey, "gemini-api-key", "", "Google AI API key for Gemini Live voice (alternative to --gcp-project)")
 	flag.StringVar(&voiceModel, "voice-model", "gemini-3.8-live", "Gemini Live model name (baseline; CR system_configuration.voiceModel overrides per session)")
 	flag.StringVar(&voiceName, "voice-name", "Kore", "Gemini prebuilt voice name")
-	flag.Int64Var(&userDailyAudioTokenLimit, "user-daily-audio-token-limit", 0, "Max Gemini Live AUDIO tokens (audio-in + audio-out) an authenticated user may spend per UTC day (0 = unlimited; CR maxUserDailyAudioTokens overrides). Audio is ~all of voice cost and equals the Live Audio billing SKUs. See ADR-042")
-	flag.IntVar(&maxConcurrentVoice, "max-concurrent-voice", 0, "Cap on simultaneous voice sessions across all users (0 = unlimited)")
+	flag.Int64Var(&userDailyAudioTokenLimit, "user-daily-audio-token-limit", 500000, "Max Gemini Live AUDIO tokens (audio-in + audio-out) an authenticated user may spend per UTC day (0 = unlimited; CR maxUserDailyAudioTokens overrides). Audio is ~all of voice cost and equals the Live Audio billing SKUs. See ADR-042")
+	flag.IntVar(&maxConcurrentVoice, "max-concurrent-voice", 20, "Cap on simultaneous voice sessions across all users (0 = unlimited)")
 	flag.IntVar(&voiceMaxOutputTokens, "voice-max-output-tokens", 8192, "Per-turn Gemini Live output token cap so a runaway/adversarial turn fails fast instead of draining the daily quota (0 = unlimited). See AUDIT F-6")
 	flag.IntVar(&headroomLimit, "headroom-content-limit", 0, "Max chars per search-result item content after markdown-noise stripping; bounds LLM context cost (0 = disabled; CR maxItemContentChars overrides). See ADR-038")
 	flag.BoolVar(&affectiveDialog, "voice-affective-dialog", false, "Enable Gemini Live affective dialog: model detects emotional tone and adapts responses (native-audio only)")
@@ -165,6 +167,7 @@ func main() {
 	flag.StringVar(&azureTenantID, "azure-tenant-id", "", "Azure AD tenant ID")
 	flag.BoolVar(&webUI, "ui", true, "Serve the embedded web UI at / (when this binary was built with one)")
 	flag.BoolVar(&dev, "dev", false, "Dev mode: disable auth requirement and allow all CORS origins")
+	flag.BoolVar(&allowAnyUser, "allow-any-user", false, "Let any GitHub account (no --github-org) or any Entra account (no --azure-tenant-id) sign in. Without it the server refuses to start with a provider and no restriction")
 	flag.BoolVar(&mcpOAuth, "mcp-oauth", false, "Enable the co-located OAuth 2.1 authorization server for MCP (RFC 9728 discovery + /authorize + /token, mounted on the main server)")
 	flag.StringVar(&mcpResourceURL, "mcp-resource-url", "", "MCP resource URL advertised in OAuth metadata (default: <public-url>/mcp)")
 	flag.DurationVar(&mcpTokenTTL, "mcp-token-ttl", 15*time.Minute, "Lifetime of issued MCP access tokens")
@@ -227,12 +230,29 @@ func main() {
 		}
 	}
 
-	// Warn when a provider is active but has no org/tenant restriction.
+	// --dev means sign-in is off. Together with a provider the server would run two
+	// authorisation models at once (MCP and CORS follow the flag, the API follows
+	// the provider), so the combination is refused.
+	if dev && (githubClientID != "" || azureClientID != "") {
+		log.Fatal().Msg("--dev turns sign-in off and cannot be combined with --github-client-id or --azure-client-id")
+	}
+	if dev && !isLoopbackAddr(httpAddr) {
+		log.Warn().Str("addr", httpAddr).Msg("--dev with sign-in off is listening beyond loopback: anyone who can reach it can read and write memory")
+	}
+
+	// A provider without an org or tenant admits every account of that provider.
+	// That is a choice to make out loud, not a default.
 	if githubClientID != "" && githubOrg == "" {
-		log.Warn().Msg("github OAuth configured without --github-org: any GitHub user can log in")
+		if !allowAnyUser {
+			log.Fatal().Msg("github sign-in needs --github-org (any GitHub account would otherwise get a session); pass --allow-any-user to admit everyone")
+		}
+		log.Warn().Msg("github OAuth without --github-org: any GitHub user can log in (--allow-any-user)")
 	}
 	if azureClientID != "" && azureTenantID == "" {
-		log.Warn().Msg("azure OAuth configured without --azure-tenant-id: any Entra user can log in")
+		if !allowAnyUser {
+			log.Fatal().Msg("entra sign-in needs --azure-tenant-id (any Entra account would otherwise get a session); pass --allow-any-user to admit everyone")
+		}
+		log.Warn().Msg("azure OAuth without --azure-tenant-id: any Entra user can log in (--allow-any-user)")
 	}
 
 	otelToken := &observability.BearerToken{}
@@ -757,4 +777,19 @@ func splitAndTrim(csv string) []string {
 		}
 	}
 	return out
+}
+
+// isLoopbackAddr reports whether a listen address binds only the loopback
+// interface. An empty host (":8080") and the unspecified addresses bind all of
+// them.
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
