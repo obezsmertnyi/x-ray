@@ -24,7 +24,7 @@ Architecture decisions live in `docs/adr/`, work items in `docs/todo/`. Both dir
 
 ## Prerequisites
 
-- Go 1.25+
+- Go 1.27.3+
 - Docker or [ko](https://ko.build) for container builds
 - A Kubernetes cluster (optional — runs without k8s in local dev)
 

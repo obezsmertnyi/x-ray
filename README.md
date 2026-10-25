@@ -282,7 +282,7 @@ make test         # the Go tests; make ui-test for the web UI
 make lint
 ```
 
-Go 1.25 or later, and Node 22 for the web UI. The CGO build needs a C compiler for the Tree-sitter grammars. Images are built with ko, and the release builds the UI first.
+Go 1.27.3 or later, and Node 22 for the web UI. The CGO build needs a C compiler for the Tree-sitter grammars. Images are built with ko, and the release builds the UI first.
 
 ## License
 
