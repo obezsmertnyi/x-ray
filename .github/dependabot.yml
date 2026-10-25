@@ -5,6 +5,10 @@ updates:
   - package-ecosystem: gomod
     directory: /
     schedule: {interval: weekly}
+    # Dependabot asks the proxy for this grammar's pseudo-version without the v
+    # prefix and fails; the module resolves for Go and CI, so it is bumped by hand.
+    ignore:
+      - dependency-name: github.com/alex-pinkus/tree-sitter-swift
     groups:
       go-minor-and-patch:
         update-types: [minor, patch]

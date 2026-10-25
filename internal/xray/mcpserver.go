@@ -43,7 +43,7 @@ const (
 
 // fullKindVocabulary documents every ADR-020 memory kind for MCP tool
 // descriptions — not just the 5 kinds X-Ray's own content happens to
-// use, so external agents (e.g. triage-agent) know the SRE-flavored kinds are
+// use, so external agents know the SRE-flavored kinds are
 // valid too.
 const fullKindVocabulary = "stable_fact, recent_change, system_identity, event, note, active_concern, operational_pattern, watch_item, hypothesis, unknown"
 
