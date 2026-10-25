@@ -396,7 +396,7 @@ func briefHit(h index.Hit) map[string]any {
 		out["repo"] = h.Repo
 	}
 	// The containing node, for a child hit. A part was a dead end without it:
-	// the academy map answered "most experienced student" with five Answer
+	// the team map answered "most experienced student" with five Answer
 	// parts, and nothing in the hit led back to the Student entity holding the
 	// years attribute short of a get_graph_node per hit. Omitted for top-level
 	// nodes, so a code hit's shape is unchanged.

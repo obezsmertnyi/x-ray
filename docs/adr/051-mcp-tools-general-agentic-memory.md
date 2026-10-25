@@ -1,6 +1,6 @@
 # ADR-051: MCP Tools as General Agentic Memory — Align with Voice, Add Multi-Tenant Scope
 
-**Status:** Implemented (X-Ray side; triage-agent's own deployment values file still needs the same rename applied — see todo)
+**Status:** Implemented (X-Ray side)
 **Date:** 2026-07-04
 **Todo:** [051-mcp-general-agentic-memory](../todo/051-mcp-general-agentic-memory.md)
 
@@ -16,7 +16,7 @@ in name, shape, and guardrails, even though both operate on the same
 | `get_memory` | *(none)* | No MCP equivalent for the orientation/counts snapshot |
 | `get_memory_items` | `list_memory` | Different name; MCP has no hard result cap |
 | `search_memory` | `search_memory` | Same name, but MCP has no min-limit floor and no hard cap; no headroom compression |
-| `save_memory` / `upsert_memory` | `upsert_memory` | MCP's `kind` description lists only 5 X-Ray kinds (`stable_fact`, `recent_change`, `system_identity`, `event`, `note`), omitting the SRE kinds (`active_concern`, `operational_pattern`, `watch_item`, `hypothesis`, `unknown`) that ADR-020 already defines and that external agents (e.g. triage-agent) actually write |
+| `save_memory` / `upsert_memory` | `upsert_memory` | MCP's `kind` description lists only 5 X-Ray kinds (`stable_fact`, `recent_change`, `system_identity`, `event`, `note`), omitting the SRE kinds (`active_concern`, `operational_pattern`, `watch_item`, `hypothesis`, `unknown`) that ADR-020 already defines and that external agents (e.g. the Triage core) actually write |
 | `delete_memory` (private-notes-only, ownership-checked) | `delete_memory` (any item, no ownership check) | Voice has a real guard MCP lacks |
 | `get_pinned_items` | *(none)* | Full content of UI-pinned ids — voice/UI-specific, but functionally "fetch several full items by id" |
 | `get_agent_notes` | *(none)* | All private items for the caller (implicitly scoped to `userHash`) — functionally `list_memory(subject=caller, scope=private)`, just implicit |
@@ -24,7 +24,7 @@ in name, shape, and guardrails, even though both operate on the same
 | `promote_note` | *(none)* | Compound op (read private note → create public cell → delete source) — a workflow, not a memory primitive; dropped from the redesign rather than generalized |
 | — | — | Neither tool set documents `subject` as a general multi-tenant key for external agents |
 
-**Trigger:** wiring triage-agent's Jucce voice agent to X-Ray's MCP server as a
+**Trigger:** wiring an external voice agent to X-Ray's MCP server as a
 shared memory backend (alongside its own internal `AwarenessMemoryCell`
 storage) surfaced two concrete problems:
 
@@ -41,10 +41,10 @@ storage) surfaced two concrete problems:
    memory being invisible to another, but no tool description teaches this
    pattern, so external agents have no way to discover or use it.
 
-Prompted by trying to reuse X-Ray as triage-agent's shared memory: the
+Prompted by trying to reuse X-Ray as an agent's shared memory: the
 "private/public scope" model that already exists for voice/human users
 (ADR-028, ADR-037) generalizes cleanly to *any* MCP caller, human or agent — an
-agent just picks a stable `subject` (its own name, e.g. `"triage-agent"`) as
+agent just picks a stable `subject` (its own name, e.g. `"my-agent"`) as
 its private tenant key, the same way a human's `subject` is `userHash`. This
 ADR proposes making that pattern a first-class, well-documented MCP surface
 rather than an incidental capability of the storage layer.
@@ -98,7 +98,7 @@ the verb alone.
 
 `upsert_memory`, `list_memory`, and `search_memory` all document `subject` as
 the private-scope tenant key for *any* caller: pass a stable `subject` (e.g.
-an agent's own name like `"triage-agent"`) with `scope=private` for working
+an agent's own name like `"my-agent"`) with `scope=private` for working
 memory invisible to other callers unless they also pass that same `subject`;
 `scope=public` for shared knowledge visible to everyone, including the X-Ray
 UI.
@@ -123,7 +123,7 @@ UI.
 
 - **Identity verification for MCP-caller `subject` values.** Any caller
   authenticated with the static shared secret (the credential external agents
-  like triage-agent actually use — see `internal/xray/mcpserver.go`) can set
+  like the Triage core actually use — see `internal/xray/mcpserver.go`) can set
   *any* `subject` string; there is no cryptographic binding between a bearer
   token and an allowed set of subjects. This ADR does not change that trust
   model (per ADR-037, it's already accepted for MCP/admin callers) — it only
@@ -137,7 +137,7 @@ UI.
   guessing/asserting the right `subject` string. Two concrete options
   surfaced, neither decided yet:
   (a) **per-agent API keys bound to a fixed subject** — each agent (e.g.
-  triage-agent) gets its own bearer credential, registered server-side with a
+  the Triage core) gets its own bearer credential, registered server-side with a
   subject the server enforces (the caller can't override it even if it tries)
   — smaller lift, reuses the existing static-secret-style credential, needs a
   credential→subject mapping;
@@ -153,11 +153,11 @@ UI.
   registration/secret storage). Needs a decision before `delete_memory`'s
   ownership check (and any future per-subject write restriction) is more than
   a documentation-level convention.
-- **The reflection/knowledge loop's own read/write path** (triage-agent's
+- **The reflection/knowledge loop's own read/write path** (the Triage core's
   `agent_reflection.go`) is a separate, larger change — it is a pure
   text-completion call today with no tool-calling capability at all, so it
   cannot consume these MCP tools without first being restructured to run
-  through triage-agent's ADK agent runner (which already supports MCP
+  through the Triage core's ADK agent runner (which already supports MCP
   toolsets). Tracked separately; not part of this ADR.
 
 ## Consequences
@@ -181,7 +181,7 @@ UI.
   `get_memory_context` disappears in favor of `fetch_memory`. Voice-side
   breakage is lower risk (server-side function-calling declarations, not
   exposed to third parties) than MCP-side breakage (external clients like
-  triage-agent depend on the exact tool names) — check for existing MCP
+  the Triage core depend on the exact tool names) — check for existing MCP
   integrations before removing old names outright, vs. keeping them as
   deprecated aliases for one release.
 - `promote_note` is dropped outright rather than generalized — any caller

@@ -12,7 +12,7 @@ import (
 )
 
 func TestEditDistanceWithin_MatchesEditDistance(t *testing.T) {
-	words := []string{"", "a", "ab", "rag", "rac", "rec", "launch", "lunch", "launchflow", "lunchflow", "déjà", "deja", "café", "cafe", "queue", "quote"}
+	words := []string{"", "a", "ab", "rag", "rac", "rec", "launch", "lunch", "launchpad", "lunchpad", "déjà", "deja", "café", "cafe", "queue", "quote"}
 	for _, a := range words {
 		for _, b := range words {
 			for max := 0; max <= 3; max++ {

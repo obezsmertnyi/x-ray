@@ -34,7 +34,7 @@ Architecture decisions live in `docs/adr/`, work items in `docs/todo/`. Both dir
 # Run the server locally (auth off, :8080)
 make run
 
-# Or build the binary (API only — the web UI is a separate service)
+# Or build the binary with the web UI embedded (make ui builds it first; Node 22)
 make build
 ./bin/xray
 ```

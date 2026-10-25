@@ -25,14 +25,14 @@ func TestSearchURLOmitsDefaults(t *testing.T) {
 
 func TestSearchURLCarriesEveryOption(t *testing.T) {
 	got := searchURL("http://h", "q", searchOpts{
-		kind: "docs", limit: 7, project: "academy", attr: "team=core", order: "age:desc", gap: true,
+		kind: "docs", limit: 7, project: "team", attr: "team=core", order: "age:desc", gap: true,
 	})
 	u, err := url.Parse(got)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"q": "q", "kind": "docs", "limit": "7", "project": "academy",
+		"q": "q", "kind": "docs", "limit": "7", "project": "team",
 		"attr": "team=core", "order": "age:desc", "cutoff": "gap",
 	}
 	q := u.Query()

@@ -151,7 +151,7 @@ spec:
                       properties:
                         name:
                           description: Name is a short identifier used for logging
-                            (e.g. "triage-agent").
+                            (e.g. "my-agent").
                           type: string
                         tokenSecret:
                           description: |-

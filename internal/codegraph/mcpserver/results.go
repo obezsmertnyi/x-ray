@@ -38,7 +38,7 @@ type searchedMap struct {
 //
 // The note names the LEVER, not just the kinds. It used to say only what the
 // map holds, and a caller asked for "the most experienced student" in the
-// academy map read that, took the five Answer parts a plain search ranked
+// team map read that, took the five Answer parts a plain search ranked
 // highest, and answered from one fragment — the whole Student set, with its
 // years attribute, was one kind=Student away and nothing said so. A model
 // reading the note has to be told that a selection exists and how to ask for
@@ -172,7 +172,7 @@ func emptySelectionNote(sel index.Select, g *graph.Graph) string {
 
 // attrVocabularyNote explains an order or attr that names an attribute the
 // scope does not use, or a value none of its nodes has. Silence here is the
-// failure it prevents: the academy map was asked for kind=Student
+// failure it prevents: the team map was asked for kind=Student
 // order=experience:desc, no Student carries "experience", every node fell into
 // orderByAttr's "no attribute, sorts last" bucket and the set came back in
 // cosine order under a note that read as healthy ("selects 37 nodes; this reply
@@ -269,7 +269,7 @@ func attrKeysClause(sel index.Select, label string, keys map[string]int) string 
 }
 
 // attrKeyCollapseAbove is the key count past which namespaced flag keys are
-// folded into their prefix. Academy Student nodes carry dozens of "level:…",
+// folded into their prefix. Team Student nodes carry dozens of "level:…",
 // "tool:…", "fw:…" flags beside a handful of plain keys; listed one by one they
 // would bury the two the caller most likely wants (years, role) in a paragraph.
 const attrKeyCollapseAbove = 12
@@ -384,7 +384,7 @@ func rememberResult(r Remembered) map[string]any {
 // voice agent was told to add "GitOps" to a student's course expectations and
 // wrote a remember note; from then on every question about that student's
 // expectations — including "what are the FULL expectations" — was answered
-// from recall alone ("I only have one note"), and the academy map holding the
+// from recall alone ("I only have one note"), and the team map holding the
 // real Answer nodes was never searched again. The note had become the record
 // in the agent's head, and nothing in the reply said it was not. This does.
 const recallFraming = "These are conversation notes — what people said — not the record. Facts about a named person, service or thing live in the map that holds them: search that map and add these notes on top, saying which is which."
@@ -540,7 +540,7 @@ func kindList(kinds map[string]bool) string {
 // Argument descriptions shared by the live (mcpserver.go) and read-only
 // (readonly.go) search tools, so the two surfaces describe one contract. They
 // are the only teaching a caller gets before its first reply, and a caller that
-// asked "the most experienced student" of the academy map never learnt from
+// asked "the most experienced student" of the team map never learnt from
 // them that a set could be selected and sorted — hence order, and the
 // superlative wording on it.
 const (

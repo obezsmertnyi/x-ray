@@ -18,8 +18,8 @@ func TestNormalizeQuerySplitsCamelAndSeparators(t *testing.T) {
 
 func TestKwTokensDropsStopwordsAndSingleChars(t *testing.T) {
 	// The question form is mostly stopwords; what must survive is the content.
-	got := kwTokens(normalizeQuery("I edited the jucce cli source, what do I need to run?"))
-	want := map[string]bool{"edited": true, "jucce": true, "cli": true, "source": true}
+	got := kwTokens(normalizeQuery("I edited the widget cli source, what do I need to run?"))
+	want := map[string]bool{"edited": true, "widget": true, "cli": true, "source": true}
 	if len(got) != len(want) {
 		t.Fatalf("tokens = %v, want exactly %v", got, want)
 	}
@@ -38,12 +38,12 @@ func TestKwTokensAllStopwordsAbstains(t *testing.T) {
 
 func TestTrigramCandidatesRequireEveryToken(t *testing.T) {
 	idx := newTrigramIndex()
-	idx.index("a", "jucce cli build", "after changing cli/jucce run make build-cli")
-	idx.index("b", "jucce identity", "jucce voice session architecture and skills")
+	idx.index("a", "widget cli build", "after changing cli/widget run make build-cli")
+	idx.index("b", "widget identity", "widget voice session architecture and skills")
 	idx.index("c", "helm upgrade", "never upgrade without reuse-values")
 
-	// Both jucce docs contain "jucce"; only "a" also contains "cli".
-	cands, _ := idx.candidates(tokenGrams([]string{"jucce", "cli"}))
+	// Both widget docs contain "widget"; only "a" also contains "cli".
+	cands, _ := idx.candidates(tokenGrams([]string{"widget", "cli"}))
 	if _, ok := cands["a"]; !ok {
 		t.Errorf("expected 'a' to match both tokens, got %v", cands)
 	}

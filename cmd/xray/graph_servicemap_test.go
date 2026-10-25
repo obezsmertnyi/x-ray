@@ -66,7 +66,7 @@ func TestServiceMap_SummarySetsRoutingDescription(t *testing.T) {
 		t.Errorf("no -summary must fall back to stats, got %q (%q)", plain.Header.SummarySource, plain.Header.Summary)
 	}
 
-	want := "students of the academy course: who they are, their experience and tools"
+	want := "students of the team course: who they are, their experience and tools"
 	described, _, err := buildCatalogSnapshot(ctx, entries, "cat", "cat.json", "  "+want+"  ", emb, fp, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)

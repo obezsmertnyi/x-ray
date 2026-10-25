@@ -3,7 +3,7 @@ package engine
 // Encrypted snapshots.
 //
 // Why: a snapshot is gzip over gob, and gob stores every string as plain
-// bytes — `gunzip -c academy.graph.gob.gz | strings` prints every node's text,
+// bytes — `gunzip -c team.graph.gob.gz | strings` prints every node's text,
 // which for a catalog map is real people's names, handles, roles and years of
 // experience. Maps ship as OCI images, and a registry that anyone can pull from
 // must not be a plaintext dump of the catalog. So a snapshot can be written
@@ -35,7 +35,7 @@ package engine
 //     maps (the only migration path) and encrypted-loaded ones alike.
 //
 // Why the identity does not imply a write recipient: Den's main server is one
-// writable process that serves the academy catalog encrypted while every other
+// writable process that serves the team catalog encrypted while every other
 // map — the session notes it flushes on every `remember` included — must stay
 // plaintext. Under "identity ⇒ encrypt all flushes" that is impossible: the
 // first note after the key is configured would encrypt the notes map. Tying

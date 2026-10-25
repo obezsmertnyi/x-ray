@@ -25,16 +25,16 @@ func harnessGraph(t *testing.T) (*graph.Graph, *index.Index) {
 	var nodes []parser.NodeInfo
 	for i, name := range names {
 		nodes = append(nodes,
-			parser.NodeInfo{Kind: "Student", Name: name, FilePath: "academy.catalog.json",
+			parser.NodeInfo{Kind: "Student", Name: name, FilePath: "team.catalog.json",
 				Content: "student " + name,
 				Attrs: map[string]string{"years": years[i], "role": "engineer",
 					"level:ide-only": "yes", "tool:gitops": "no"}},
-			parser.NodeInfo{Kind: "Answer", Name: "aire", ParentName: name, FilePath: "academy.catalog.json",
+			parser.NodeInfo{Kind: "Answer", Name: "aire", ParentName: name, FilePath: "team.catalog.json",
 				Content: "answer of " + name},
 		)
 	}
 	g := graph.New()
-	g.Build(graph.RepoGraph{Repo: "academy", Nodes: nodes})
+	g.Build(graph.RepoGraph{Repo: "team", Nodes: nodes})
 	ix := index.New(g, textEmbedder{}, zerolog.Nop())
 	if err := ix.Build(context.Background()); err != nil {
 		t.Fatal(err)
@@ -45,8 +45,8 @@ func harnessGraph(t *testing.T) (*graph.Graph, *index.Index) {
 // directReply runs SearchDirect against a one-map resolver and decodes the reply.
 func directReply(t *testing.T, g *graph.Graph, ix *index.Index, sel index.Select) map[string]any {
 	t.Helper()
-	d := Deps{Resolver: &fakeResolver{label: "academy", g: g, ix: ix}}
-	s, err := SearchDirect(context.Background(), d, "academy", "most experienced student", 5, codeKinds, sel, false)
+	d := Deps{Resolver: &fakeResolver{label: "team", g: g, ix: ix}}
+	s, err := SearchDirect(context.Background(), d, "team", "most experienced student", 5, codeKinds, sel, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestAttrNote_UnknownKeyWhoseValueIsATitleNamesTheNode(t *testing.T) {
 	sel := index.Select{Kinds: map[string]bool{"Student": true}, Attr: index.AttrFilter{Key: "github", Value: "@Octocat42"}}
 	out := directReply(t, g, ix, sel)
 	n := noteOf(out)
-	want := `"@Octocat42" is the title of Student node academy//academy.catalog.json::octocat42 — read it with get_graph_node, or put the handle in the query`
+	want := `"@Octocat42" is the title of Student node team//team.catalog.json::octocat42 — read it with get_graph_node, or put the handle in the query`
 	if !strings.Contains(n, want) {
 		t.Fatalf("note %q\nmust contain %q", n, want)
 	}
@@ -178,7 +178,7 @@ func TestAttrNote_UnknownKeyWhoseValueIsATitleNamesTheNode(t *testing.T) {
 func TestAttrNote_ScopeWordingWithoutKinds(t *testing.T) {
 	g, ix := harnessGraph(t)
 	out := directReply(t, g, ix, index.Select{Order: index.Order{Key: "experience"}})
-	want := `no node in map "academy" carries attribute "experience"`
+	want := `no node in map "team" carries attribute "experience"`
 	if n := noteOf(out); !strings.Contains(n, want) {
 		t.Fatalf("note %q\nmust contain %q", n, want)
 	}
@@ -234,7 +234,7 @@ func TestAttrValuesClause_CountsWhenManyAndQuotesSpaces(t *testing.T) {
 // skips kinds whose nodes carry none, and adds nothing to a code map's entry.
 func TestMapStatsEntry_ListsAttrKeysPerCatalogKind(t *testing.T) {
 	g, _ := harnessGraph(t)
-	entry := mapStatsEntry(Resolved{Label: "academy", Graph: g})
+	entry := mapStatsEntry(Resolved{Label: "team", Graph: g})
 	attrs, ok := entry["attrs"].(map[string]string)
 	if !ok {
 		t.Fatalf("a catalog map's stats must carry attrs, got %v", entry["attrs"])
@@ -250,8 +250,8 @@ func TestMapStatsEntry_ListsAttrKeysPerCatalogKind(t *testing.T) {
 		t.Fatalf("a code map's stats entry must be unchanged: %v", code)
 	}
 	// The same entry serves StatsDirect, so the field reaches the wire.
-	d := Deps{Resolver: &fakeResolver{label: "academy", g: g}}
-	s, err := StatsDirect(context.Background(), d, "academy", "")
+	d := Deps{Resolver: &fakeResolver{label: "team", g: g}}
+	s, err := StatsDirect(context.Background(), d, "team", "")
 	if err != nil {
 		t.Fatal(err)
 	}

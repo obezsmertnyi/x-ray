@@ -44,7 +44,7 @@ tools over MCP and by voice.
 ## Consequences
 
 - A map ships as an image and loads from one cell. No second deployment, no volume.
-- The `xray-graph` chart stays for a shared, independently scaled map server.
+- The `xray-graph` chart is no longer needed and is removed (ADR-060).
 - The digest to pin is the one the registry reports after the push, not the one
   `make maps-image` prints: a push tool may rewrite the manifest.
 - Cost: the server holds the maps in memory (about 62 MiB for a 4,000-node map).

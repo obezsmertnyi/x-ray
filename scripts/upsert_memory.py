@@ -2,7 +2,7 @@
 """Upsert a memory item with an optional image thumbnail via the X-Ray MCP server.
 
 Usage:
-  python upsert_memory.py --title "LaunchFlow" --kind system_identity --content "..." [--image path/to/img.jpg] [--id existing-id]
+  python upsert_memory.py --title "LaunchPad" --kind system_identity --content "..." [--image path/to/img.jpg] [--id existing-id]
 
 Environment:
   XRAY_MCP_TOKEN  Bearer token for the MCP server

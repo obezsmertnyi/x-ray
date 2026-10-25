@@ -51,7 +51,7 @@ One `serve-snapshots` process serves many maps. A search with no `map` is routed
 
 **In the memory server.** `xray --mental-maps-dir <dir>` loads the same snapshots into the memory server, so one endpoint answers both `search_memory` and `search_graph`, and the voice layer gets code tools. A `MemoryCell` that carries a graph in `data.graph` registers as a map without a restart. For a graph too large for a cell (about 480 nodes), `data.graphRef` holds a digest-pinned OCI reference instead, say a `make maps-image` image, and the server pulls it, with the credentials of `--registry-pull-secret` for a private registry, and registers the same way. An encrypted snapshot opens with `--mental-maps-snapshot-key`. Cell: `kind: mental_map`, `subject: <map label>`, `data: {graphRef: {mime: text/plain, bytes: "ghcr.io/you/maps@sha256:..."}}`.
 
-**Maps image.** `make maps-image MAPS="a b"` packs snapshots into a local OCI image tarball (a scratch image with `/maps/*.graph.gob.gz`). The `xray-graph` chart mounts it as an image volume (Kubernetes 1.33 or later) or seeds a volume from it. The target never pushes; it prints the command to do so.
+**Maps image.** `make maps-image MAPS="a b"` packs snapshots into a local OCI image tarball (a scratch image with `/maps/*.graph.gob.gz`). Push it to a registry and point a `mental_map` cell at it by digest (`data.graphRef`): the memory server pulls it and registers the map. The target never pushes; it prints the command to do so.
 
 **Catalog maps.** `xray graph servicemap -in catalog.json -label name` builds a map from people, services or records instead of code. Pass `-summary` so the map can be routed to: a catalog has no README to describe it. `xray graph services <snapshot>` goes the other way and derives a service catalog from a code map.
 
@@ -117,4 +117,4 @@ export XRAY_AUTH_TOKEN=$(cat ~/.config/xray/token)   # read by the hook and upda
 
 ## In the cluster
 
-The `xray-graph` chart runs `serve-snapshots` as its own deployment, with maps from image volumes or a volume seeded from a maps image, optional bearer-token auth, optional age identity, an HPA and an ingress. The memory chart mounts no maps: it takes them as cells that carry a graph, or as files in `--mental-maps-dir`.
+There is one chart, `xray`. The memory server takes maps as cells that carry a graph (`data.graph`) or point at one in a registry (`data.graphRef`), or as files in `--mental-maps-dir`; the voice model and every MCP client then reach them on the same endpoint as the memory tools. For a snapshot server on its own, run `xray graph serve-snapshots` from the same image.

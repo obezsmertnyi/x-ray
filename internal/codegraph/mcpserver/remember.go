@@ -70,7 +70,7 @@ func registerRemember(s *server.MCPServer, d Deps) {
 		mcp.WithDescription(rememberDesc(d)),
 		mcp.WithString("text", mcp.Description("The note itself, one or two sentences that will make sense out of context"), mcp.Required()),
 		mcp.WithString("title", mcp.Description("Optional short name for the note; becomes part of its qualified name")),
-		mcp.WithString("attrs", mcp.Description("Optional facets as \"key=value,key=value\" (e.g. session=abc123,topic=academy). Each becomes an attribute a later search can select with attr=key=value; the server always adds at=<time> and expires=<time>. about=<title or handle> names the map record the note is about (e.g. about=octocat42) and puts the note first in a recall for that name.")),
+		mcp.WithString("attrs", mcp.Description("Optional facets as \"key=value,key=value\" (e.g. session=abc123,topic=team). Each becomes an attribute a later search can select with attr=key=value; the server always adds at=<time> and expires=<time>. about=<title or handle> names the map record the note is about (e.g. about=octocat42) and puts the note first in a recall for that name.")),
 		mcp.WithString("ttl", mcp.Description("Optional lifetime: a duration such as 7d, 24h or 90m, or never. Omitted means the server default; after it the note is swept out of the map.")),
 	), logged(d, "remember", func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := req.GetArguments()

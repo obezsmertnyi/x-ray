@@ -117,7 +117,7 @@ type loadConfig struct{ keyFile string }
 func WithSnapshotKey(file string) LoadOption { return func(c *loadConfig) { c.keyFile = file } }
 
 // Save writes the graph, with its vectors and HNSW index, to a snapshot file
-// that Load, "xray graph serve-snapshots" and the xray-graph chart read. A
+// that Load and "xray graph serve-snapshots" read. A
 // snapshot holds one repository, so Save needs a graph built from one; build
 // one Graph per repository to snapshot several.
 func (g *Graph) Save(ctx context.Context, path string) error {

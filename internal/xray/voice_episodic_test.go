@@ -20,7 +20,7 @@ func TestSaveMemory_EpisodicKind(t *testing.T) {
 	tool := defSaveMemory(s, nil, "", user)
 
 	_, err := tool.handler(context.Background(), map[string]any{
-		"title": "session memory", "content": "we discussed Avatar/Runway", "kind": "episodic",
+		"title": "session memory", "content": "we discussed the roadmap", "kind": "episodic",
 	})
 	require.NoError(t, err)
 	_, err = tool.handler(context.Background(), map[string]any{

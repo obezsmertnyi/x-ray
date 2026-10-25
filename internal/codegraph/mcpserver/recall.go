@@ -5,7 +5,7 @@ package mcpserver
 // Notes were readable before this through search_graph map=<notes> kind=Memory
 // order=at:desc — a recipe, spelled out in remember's reply and description.
 // The voice agent still did not use it: asked "do you remember the Octocat
-// notes", it searched the academy catalog and reported nothing, because a
+// notes", it searched the team catalog and reported nothing, because a
 // recipe buried in another tool's argument list is not a tool it knows it
 // has. recall is that recipe as a first-class tool with the description doing
 // the routing: any question about a previous conversation starts here.

@@ -49,21 +49,21 @@ func TestRemember_CreatesTheMapAndWritesItsSnapshot(t *testing.T) {
 	ctx := context.Background()
 
 	got, err := r.Remember(ctx, "session", Note{
-		Text:  "A user asked for the most experienced academy student; answered Morgan at 30 years.",
-		Title: "Academy: most experienced",
+		Text:  "A user asked for the most experienced team student; answered Morgan at 30 years.",
+		Title: "Team: most experienced",
 		Attrs: map[string]string{"session": "s1"},
 	})
 	if err != nil {
 		t.Fatalf("remember: %v", err)
 	}
-	if got.Map != "session" || got.Notes != 1 || !strings.HasPrefix(got.QN, "session//memory/") || !strings.Contains(got.QN, "-academy-most-experienced") {
+	if got.Map != "session" || got.Notes != 1 || !strings.HasPrefix(got.QN, "session//memory/") || !strings.Contains(got.QN, "-team-most-experienced") {
 		t.Fatalf("unexpected receipt: %+v", got)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "session.graph.gob.gz")); err != nil {
 		t.Fatalf("snapshot must be flushed at once, not on shutdown: %v", err)
 	}
 
-	hits := memoryHits(t, r, "session", "experienced academy student", index.Order{})
+	hits := memoryHits(t, r, "session", "experienced team student", index.Order{})
 	if len(hits) != 1 || hits[0].QN != got.QN || hits[0].Kind != "Memory" {
 		t.Fatalf("the note must be the only Memory hit, got %+v", hits)
 	}
@@ -71,7 +71,7 @@ func TestRemember_CreatesTheMapAndWritesItsSnapshot(t *testing.T) {
 	if !ok {
 		t.Fatalf("node %s missing from graph", got.QN)
 	}
-	if n.Attrs["at"] == "" || n.Attrs["session"] != "s1" || n.Attrs["title"] != "Academy: most experienced" {
+	if n.Attrs["at"] == "" || n.Attrs["session"] != "s1" || n.Attrs["title"] != "Team: most experienced" {
 		t.Fatalf("attrs must carry the server's at plus the caller's facets: %v", n.Attrs)
 	}
 	if _, err := time.Parse(time.RFC3339, n.Attrs["at"]); err != nil {
@@ -189,7 +189,7 @@ func TestAddSnapshot_KeepsALoadedWorkedCopyForTheSamePath(t *testing.T) {
 func TestSlug(t *testing.T) {
 	cases := map[string]string{
 		"":                              "",
-		"Academy: most experienced":     "academy-most-experienced",
+		"Team: most experienced":        "team-most-experienced",
 		"  --Weird__punct!!  ":          "weird-punct",
 		strings.Repeat("abcdefghij", 6): strings.Repeat("abcdefghij", 4),
 	}
@@ -209,19 +209,19 @@ func TestRemember_RefusesAMapThatIsNotANotesMap(t *testing.T) {
 
 	// A catalog-shaped map: one Student node, written as a snapshot the
 	// registry then registers, exactly as a served map arrives.
-	files := map[string]parser.Result{"academy.catalog.json": {Nodes: []parser.NodeInfo{{
-		Kind: "Student", Name: "janedoe", FilePath: "academy.catalog.json", Content: "Jane Doe. 11 years.",
+	files := map[string]parser.Result{"team.catalog.json": {Nodes: []parser.NodeInfo{{
+		Kind: "Student", Name: "janedoe", FilePath: "team.catalog.json", Content: "Jane Doe. 11 years.",
 	}}}}
-	ixr, err := NewIndexerFromResults(ctx, "academy", "memory://academy", files, emb, testLogger())
+	ixr, err := NewIndexerFromResults(ctx, "team", "memory://team", files, emb, testLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
 	fp := EmbedFingerprint{Model: "stub", Dims: emb.dims, MaxInputChars: 8192}
-	snap, err := ixr.SnapshotFor(ctx, "academy", fp, emb)
+	snap, err := ixr.SnapshotFor(ctx, "team", fp, emb)
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "academy.graph.gob.gz")
+	path := filepath.Join(dir, "team.graph.gob.gz")
 	if err := WriteSnapshot(path, snap); err != nil {
 		t.Fatal(err)
 	}
@@ -229,17 +229,17 @@ func TestRemember_RefusesAMapThatIsNotANotesMap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = r.Remember(ctx, "academy", Note{Text: "the most experienced student is Morgan"})
+	_, err = r.Remember(ctx, "team", Note{Text: "the most experienced student is Morgan"})
 	if err == nil {
 		t.Fatal("a catalog map must refuse a note")
 	}
-	for _, want := range []string{`map "academy" is not a notes map`, "Student=1", "agent-notes map"} {
+	for _, want := range []string{`map "team" is not a notes map`, "Student=1", "agent-notes map"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal %q should mention %q", err, want)
 		}
 	}
 	// Refused means untouched: no Memory node, no rewrite of the snapshot.
-	if hits := memoryHits(t, r, "academy", "student", index.Order{}); len(hits) != 0 {
+	if hits := memoryHits(t, r, "team", "student", index.Order{}); len(hits) != 0 {
 		t.Fatalf("a refused note must not be written, found %d Memory hits", len(hits))
 	}
 

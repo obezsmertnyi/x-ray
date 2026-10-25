@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
 
 jobs:
   lint:
@@ -121,7 +119,7 @@ jobs:
       with:
         version: v3.16.2
 
-    - run: helm lint charts/xray charts/xray-graph
+    - run: helm lint charts/xray
 
     # The memory chart must render, and must start without secrets nobody made.
     - name: Render the memory chart
@@ -134,17 +132,3 @@ jobs:
         fi
         helm template xray charts/xray -n xray --set dev=true | grep -q -- '- --dev'
         helm template xray charts/xray -n xray --set github.secretName=github-oauth | grep -q GITHUB_CLIENT_ID
-
-    # The chart needs Kubernetes 1.33 (image volumes); with no cluster to ask,
-    # helm assumes an older version and refuses to render.
-    - name: Render the value combinations the validations guard
-      run: |
-        set -euo pipefail
-        render() { helm template t charts/xray-graph --kube-version 1.33.0 "$@" > /dev/null; }
-        render
-        render --set server.auth.enabled=true --set server.auth.secretName=auth
-        render --set server.writable=true --set snapshots.source=pvc --set ingress.enabled=true
-        if render --set server.auth.enabled=true 2>/dev/null; then
-          echo "server.auth.enabled without a secretName rendered; validations.yaml must refuse it" >&2
-          exit 1
-        fi

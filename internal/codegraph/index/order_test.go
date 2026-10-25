@@ -10,7 +10,7 @@ import (
 	"github.com/triageagent-dev/x-ray/v2/internal/codegraph/parser"
 )
 
-// studentCorpus is the academy map's shape: Student entries carrying a numeric
+// studentCorpus is the team map's shape: Student entries carrying a numeric
 // "years" attribute (one without), each with an Answer part under it linked by
 // "contains". The incident: "most experienced student" ranked the parts, and a
 // kind=Student selection ranked by cosine led with an 11-year student.

@@ -39,7 +39,8 @@ The standalone code is the source of truth for the second kind.
   (`make graph-build`) adds `serve`, `snapshot` and `dump <dir>`, which parse.
   The parser image is a tag of the same repository, `:<version>-parser`.
 - One chart per workload: `xray` for the memory server and `xray-graph` for a
-  snapshot server on its own. The `xray-recall` chart is gone.
+  snapshot server on its own. The `xray-recall` chart is gone. (The `xray-graph`
+  chart was later removed too: ADR-060.)
 - The memory server opens encrypted snapshots with `--mental-maps-snapshot-key`.
 - The MCP server key in the install snippet is `xray`.
 - Public Go packages, so other projects use X-Ray without the server's

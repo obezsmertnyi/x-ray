@@ -5,11 +5,11 @@
 
 X-Ray's voice sessions (Gemini Live via `internal/xray/voice.go`) and tool calls (`voice_tools.go`) have no distributed tracing. Debugging latency, tool call failures, or token usage requires grepping logs. The `go.opentelemetry.io/otel` package is already present as an indirect dependency.
 
-The triage-agent project (`github.com/triage-agent-dev/triage-agent`) implements a full OTEL tracing stack for Gemini Live sessions (`internal/jucce/session.go`) and tool spans (`internal/triageagent/agent.go`), using OpenInference span conventions and OTLP gRPC export. This is the reference implementation.
+The Triage core implements a full OTEL tracing stack for Gemini Live sessions (`internal/voice/session.go`) and tool spans (`internal/triageagent/agent.go`), using OpenInference span conventions and OTLP gRPC export. This is the reference implementation.
 
 ## Decision
 
-Add OpenTelemetry tracing to X-Ray, modelled on the triage-agent implementation:
+Add OpenTelemetry tracing to X-Ray, modelled on the Triage core's implementation:
 
 1. **`internal/observability/otel.go`** — `ConfigureOTel(endpoint, projectName string)` initialising a global `TracerProvider` with OTLP gRPC export, parent-based sampling, and OpenInference span kind normalisation. Returns early (no-op tracer) when endpoint is empty.
 2. **`cmd/xray/main.go`** — add two flags to the existing `var ()` block and call `ConfigureOTel` before `NewServer`:

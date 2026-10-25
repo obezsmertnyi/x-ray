@@ -10,7 +10,7 @@
 
 ## Build, Test, and Development Commands
 - `make run`: run backend locally on `:8080`.
-- `make build`: compile `bin/xray` (API only; the web UI is a separate service).
+- `make build`: compile `bin/xray` with the web UI (`ui/`, built by `make ui`, Node 22) embedded; `make build UI=0` builds the API alone.
 - `make test`: run Go test suite (`go test ./...`).
 - `make lint`: enforce formatting (`gofmt -l`) and run `go vet`.
 - `make fmt`: apply `gofmt -w` across Go files.
@@ -28,7 +28,7 @@
 - Follow conventional commit prefixes used in history: `feat:`, `fix:`, `docs:`, `chore:`.
 - Keep commits scoped and descriptive (e.g., `fix: initialize MCP client before tool listing`).
 - PRs should include: purpose, key changes, test evidence (command output summary), and linked issue/ticket.
-- Frontend changes do not belong in this repo; the web UI is a separate service.
+- The web UI lives in `ui/` and is embedded in the binary: UI changes belong here, with `make ui-test` run before committing.
 - Code change + CHANGELOG.md entry + ADR/todo updates must all land in a single commit — never split them.
 
 ## ADR & Todo Completion

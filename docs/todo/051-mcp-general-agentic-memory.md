@@ -12,7 +12,7 @@ list/search/recent tool. Full ADR-020 kind vocabulary in descriptions.
 `subject` documented as the general multi-tenant private-scope key for any
 MCP caller, not just human voice sessions.
 
-Triggered by wiring triage-agent's Jucce voice agent to X-Ray's MCP server: a
+Triggered by wiring an external voice agent to X-Ray's MCP server: a
 live session called `list_memory` with no `kind`/`limit` and got 50 items back
 with no ceiling, surfacing that the two tool sets had diverged in name, shape,
 and guardrails despite doing the same job against the same `MemoryStore`.
@@ -197,38 +197,27 @@ memory primitive. Callers compose it from `fetch_memory` + `upsert_memory` +
 
 - In `upsert_memory`, `list_memory`, `search_memory` descriptions (both
   surfaces): pass a stable `subject` (e.g. an agent's own name like
-  `"triage-agent"`) with `scope=private` for working memory invisible to other
+  `"my-agent"`) with `scope=private` for working memory invisible to other
   callers unless they also pass that same `subject`; `scope=public` for shared
   knowledge.
 - Test: two different `subject` values' private items don't leak into each
   other's `list_memory`/`search_memory`/`fetch_memory` results (extends the
   agent-note tenant isolation suite, ADR-028).
 
-## Cross-repo naming drift — STILL OPEN on the triage-agent side
+## Cross-repo naming drift — STILL OPEN on the agent side
 
 `charts/xray/values.yaml` and `values-triage-xray.yaml` (this repo)
 have been updated to the final names — `enabledTools` lists and system
 prompt text both use `get_memory`/`list_memory`/`search_memory`/
 `fetch_memory`/`recent_memory`/`save_memory`/`upsert_memory` now.
 
-**triage-agent's deployment values file's Jucce system
-prompt** (`prompts.jucceSystemPrompt`, "Awareness Memory"/"Writing Memory"
-sections) was NOT touched by this work (separate repo) and still references
-the OLD names (`get_memory_items`, `get_recent_memory`) that no longer exist
-on the MCP server Jucce connects to. Needs the same find-and-replace applied
-there: `get_memory_items` → `list_memory`, `get_recent_memory` →
-`recent_memory` (`get_memory`/`search_memory`/`save_memory` already match).
-`fetch_memory` could also be mentioned as a way to get full content of a
-known item by id, though Jucce's prompt doesn't currently reference the old
-`get_pinned_items`/`get_agent_notes` equivalents so no direct replacement is
-needed there.
 
 ## Explicitly out of scope (see ADR-051)
 
 - No change to the MCP auth trust model — a caller authenticated with the
   static shared secret can still set any `subject` string; no per-token
   subject allowlisting.
-- Triage-agent's reflection/knowledge loop (`agent_reflection.go`) still can't
+- The Triage core's reflection/knowledge loop (`agent_reflection.go`) still can't
   consume these tools — it's a pure text-completion call with no tool-calling
   capability. Separate, larger piece of work. Not tracked here.
 

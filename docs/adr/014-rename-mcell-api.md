@@ -4,7 +4,7 @@
 ## Context
 
 The `AwarenessMemoryCell` type and `triageagent.dev` API group were inherited from the
-triage-agent project. X-Ray is a standalone product; the names are misleading and
+Triage project. X-Ray is a standalone product; the names are misleading and
 unnecessarily verbose. The shortName `mcell` is already in the kubebuilder marker.
 
 ## Decisions
@@ -38,7 +38,7 @@ All consumers of `api/v1alpha1` use import alias `mcell` instead of `triagev1alp
 ## Consequences
 
 **Positive:**
-- Names reflect the xray domain, not the triage-agent origin.
+- Names reflect the xray domain, not the Triage origin.
 - `mcell` alias is short and matches the existing kubectl shortName.
 - No API surface change — JSON field names, spec shape, and CRD version (`v1alpha1`) are unchanged.
 

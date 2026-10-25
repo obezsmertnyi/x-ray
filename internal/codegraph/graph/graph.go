@@ -246,7 +246,7 @@ func (g *Graph) Stats() Stats {
 // how many carry each. Kinds whose nodes carry no attribute (every parsed code
 // kind) are absent, so a code map's stats say nothing new. It is the vocabulary
 // a caller needs BEFORE asking a catalog map to filter or order by an attribute:
-// the academy map was ordered by "experience" when the key was "years", and
+// the team map was ordered by "experience" when the key was "years", and
 // nothing short of reading a node back with get_graph_node could have said so.
 func (g *Graph) AttrKeysByKind() map[string]map[string]int {
 	g.mu.RLock()

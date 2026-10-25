@@ -341,7 +341,7 @@ type Hit struct {
 
 	// Parent is the qualified name of the node that contains this one, set
 	// only for a child node (a catalog entry's part, a doc's section). A search
-	// over a catalog whose entries carry parts returns the parts — the academy
+	// over a catalog whose entries carry parts returns the parts — the team
 	// map answered "most experienced student" with five Answer parts — and a
 	// brief hit gave no way back to the entity that holds the facts short of a
 	// second call per hit.
@@ -371,7 +371,7 @@ type Select struct {
 	// Order, when set, sorts the selected set by an attribute instead of by
 	// similarity to the query. A superlative — "most experienced student",
 	// "oldest incident" — is a sort, not a similarity, and no similarity rank
-	// can answer it: the academy map ranked a kind=Student selection by cosine
+	// can answer it: the team map ranked a kind=Student selection by cosine
 	// and put an 11-year student first, so answering needed all 37 entries read
 	// back and compared by the caller. Naming an order selects the whole scope
 	// (Select.Empty is false), because ordering only means something over a set
@@ -556,7 +556,7 @@ func (ix *Index) CountMatching(kinds map[string]bool, repoFilter string, sel Sel
 // hard requirement and is already satisfied, so there is nothing for a keyword
 // channel to promote a node past — UNLESS the caller named an attribute to
 // order by: a superlative ("most experienced", "oldest incident") is a sort,
-// not a similarity, and no similarity rank can answer it. The academy map
+// not a similarity, and no similarity rank can answer it. The team map
 // ranked kind=Student by cosine and led with an 11-year student while three
 // 30-year students sat further down, so the caller had to read all 37 back.
 // With an order the cosine only breaks ties. A node with no vector still
@@ -810,7 +810,7 @@ func (f AttrFilter) Empty() bool { return f.Key == "" }
 // AttrVocabulary is what a scope's nodes say about themselves: which attribute
 // keys they carry and, for one key the caller asked about, which values. It
 // exists so a reply can NAME a vocabulary mismatch instead of silently ranking
-// around it: the academy map was asked for kind=Student order=experience:desc,
+// around it: the team map was asked for kind=Student order=experience:desc,
 // no Student carries "experience", orderByAttr put every node in its "no
 // attribute, sorts last" bucket and the set came back in cosine order — the
 // reply looked healthy and the caller read an 8-year student as the most
@@ -856,7 +856,7 @@ func (ix *Index) AttrVocabulary(kinds map[string]bool, repoFilter string, sel Se
 // whose title, or the last segment of whose qn, IS name — case-insensitive,
 // and a leading '@' on either side is ignored. An attr filter whose KEY is
 // unknown often carries a value that names a node rather than an attribute:
-// the academy map was asked four times for attr=github=octocat42, "github" is
+// the team map was asked four times for attr=github=octocat42, "github" is
 // no attribute, and octocat42 is a Student's title (its qn ends ::octocat42)
 // — 0 results, no note, four times. Plain scan, note path only.
 func (ix *Index) TitledNodes(kinds map[string]bool, repoFilter string, sel Select, name string, max int) []*graph.Node {

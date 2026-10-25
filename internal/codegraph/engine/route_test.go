@@ -18,15 +18,15 @@ func newLabelRegistry(labels ...string) *Registry {
 }
 
 func TestEntryMatchesLabelCaseInsensitively(t *testing.T) {
-	r := newLabelRegistry("academy", "mcp-security-governance")
+	r := newLabelRegistry("team", "security-policies")
 
-	for _, in := range []string{"academy", "Academy", "ACADEMY", "AcAdEmY"} {
+	for _, in := range []string{"team", "Team", "TEAM", "TeAm"} {
 		e := r.entry(in)
-		if e == nil || e.label != "academy" {
-			t.Fatalf("entry(%q) = %v, want the academy entry", in, e)
+		if e == nil || e.label != "team" {
+			t.Fatalf("entry(%q) = %v, want the team entry", in, e)
 		}
 	}
-	if e := r.entry("MCP-Security-Governance"); e == nil || e.label != "mcp-security-governance" {
+	if e := r.entry("Security-Policies"); e == nil || e.label != "security-policies" {
 		t.Fatalf("hyphenated label must match case-insensitively, got %v", e)
 	}
 	if e := r.entry("nosuchmap"); e != nil {
@@ -35,16 +35,16 @@ func TestEntryMatchesLabelCaseInsensitively(t *testing.T) {
 }
 
 func TestLabelsNamedInMatchesWholeWordsOnly(t *testing.T) {
-	r := newLabelRegistry("academy", "ville", "alpha", "beta")
+	r := newLabelRegistry("team", "ville", "alpha", "beta")
 
 	cases := []struct {
 		name string
 		text string
 		want []string
 	}{
-		{"label named in prose", "tools and services used by Jane Roe in project Academy", []string{"academy"}},
-		{"trailing punctuation is a boundary", "look in project academy.", []string{"academy"}},
-		{"suffix is not a match", "who academies the load", nil},
+		{"label named in prose", "tools and services used by Jane Roe in project Team", []string{"team"}},
+		{"trailing punctuation is a boundary", "look in project team.", []string{"team"}},
+		{"suffix is not a match", "who teams the load", nil},
 		{"prefix is not a match", "the village layout", nil},
 		{"ordered by first appearance", "compare alpha with beta", []string{"alpha", "beta"}},
 		{"order follows the text, not the map", "compare beta with alpha", []string{"beta", "alpha"}},
@@ -71,10 +71,10 @@ func TestWordIndexReportsFirstWholeWordPosition(t *testing.T) {
 		s, word string
 		want    int
 	}{
-		{"in project academy", "academy", 11},
-		{"academy first, academy again", "academy", 0},
-		{"academies then academy", "academy", 15},
-		{"academies", "academy", -1},
+		{"in project team", "team", 11},
+		{"team first, team again", "team", 0},
+		{"teams then team", "team", 11},
+		{"teams", "team", -1},
 		{"a-b-c", "a-b-c", 0},
 		{"xa-b-cx", "a-b-c", -1},
 		{"anything", "", -1},

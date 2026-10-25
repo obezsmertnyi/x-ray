@@ -296,7 +296,7 @@ func (r *Registry) Labels() []string {
 // an exact `mapName` label is a free fast path; then labels NAMED in the route
 // text seed the set; then the semantic rank fills whatever fanout is left. A
 // `mapName` hint that is not a label (e.g. "mcp governance" for the label
-// mcp-security-governance) is embedded and cosine-matched against every map's
+// security-policies) is embedded and cosine-matched against every map's
 // summary vector, the same brute-force scan used for query routing. Maps are
 // returned best-first; each is loaded (from snapshot if evicted) and touched.
 func (r *Registry) Resolve(ctx context.Context, mapName, query string) ([]mcpserver.Resolved, error) {
@@ -331,7 +331,7 @@ func (r *Registry) Resolve(ctx context.Context, mapName, query string) ([]mcpser
 	}
 
 	// Labels named in the route text seed the set. A caller that writes the map
-	// into its query instead of the mapName argument ("... in project Academy")
+	// into its query instead of the mapName argument ("... in project Team")
 	// has still named a target, and the summary vectors cannot recover it: a
 	// label is an identifier, and one dense vector per map does not resolve
 	// identifiers — it ranks by topic. Seeding rather than overriding leaves the
@@ -532,7 +532,7 @@ func (r *Registry) FlushAll(ctx context.Context) {
 
 // entry looks up a registered project by label.
 // entry looks up one map by label, case-insensitively. A label is an identifier
-// a caller types or an agent lifts out of prose ("Academy" for academy), and a
+// a caller types or an agent lifts out of prose ("Team" for team), and a
 // case difference silently dropping that caller into semantic routing reads as a
 // routing bug rather than a typo.
 func (r *Registry) entry(label string) *projectEntry {
@@ -585,8 +585,8 @@ func (r *Registry) labelsNamedIn(text string) []*projectEntry {
 
 // wordIndex returns the index of the first whole-word occurrence of word in s
 // (both already lowercased), or -1. A boundary is any byte that is not an ASCII
-// letter or digit, so "academy" matches in "project Academy." but not in
-// "academies"; a hyphen inside a label is interior, not a boundary.
+// letter or digit, so "team" matches in "project Team." but not in
+// "teams"; a hyphen inside a label is interior, not a boundary.
 func wordIndex(s, word string) int {
 	if word == "" {
 		return -1

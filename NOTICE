@@ -10,5 +10,7 @@ It includes the following third-party software, each under its own license:
   - Kubernetes, controller-runtime and client-go (Apache-2.0).
   - mcp-go, github.com/mark3labs/mcp-go (MIT), the MCP server and client.
   - hnsw, github.com/fogfish/hnsw (MIT), the nearest-neighbour index.
+  - D3 v7 (ISC, Copyright 2010-2023 Mike Bostock), bundled in the code-graph page at internal/codegraph/ui/assets/d3.v7.min.js.
+  - The web UI's npm packages (ui/package.json, mostly MIT, listed with their licenses in ui/package-lock.json), compiled into the binary.
 
 The full list of Go dependencies and their licenses is in go.mod and go.sum.

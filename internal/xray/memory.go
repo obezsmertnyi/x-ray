@@ -962,8 +962,8 @@ func tokenMatchQuality(nt, nc, t string) int {
 // fuzzyTolerance is the allowed Levenshtein distance for a fuzzy word match,
 // scaled by token length. 1-2 char tokens demand exactness (a 1-edit ball around
 // them is far too broad); tokens of 3+ chars allow 1 edit. This catches both
-// short mishears ("rek"→"rec", "rac"→"rag") and long ones ("lunchflow"→
-// "launchflow") — the old hard ≤6-char cap blocked the latter entirely. Spurious
+// short mishears ("rek"→"rec", "rac"→"rag") and long ones ("lunchpad"→
+// "launchpad") — the old hard ≤6-char cap blocked the latter entirely. Spurious
 // near-collisions (rac/rag/rec) are sorted out by match-quality grading and the
 // coverage gate, not by disabling fuzzy.
 func fuzzyTolerance(n int) int {
@@ -977,8 +977,8 @@ func fuzzyTolerance(n int) int {
 // any single word in h. A tolerance of 0 means no fuzzy match (exact only).
 //
 // It also tests t against adjacent word pairs joined without a space, because
-// normalizeQuery splits CamelCase ("LaunchFlow" → "launch flow"): a mishear
-// token like "lunchflow" must still match the original single word. The join
+// normalizeQuery splits CamelCase ("LaunchPad" → "launch pad"): a mishear
+// token like "lunchpad" must still match the original single word. The join
 // uses the token's tolerance sized for the *joined* length.
 func fuzzyWordMatch(h, t string) bool {
 	tn := utf8.RuneCountInString(t)

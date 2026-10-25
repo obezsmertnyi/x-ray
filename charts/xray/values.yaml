@@ -309,13 +309,13 @@ voice:
     # entry here just makes every voice session try to dial a dead Service and log
     # `failed to fetch MCP tools ... no such host`.
     mcpServers: []
-    # To wire a real remote MCP server (e.g. triage-agent), add an entry:
-    #  - name: triage-agent
-    #    url: "https://triage-agent.example.com/mcp"
+    # To wire a real remote MCP server (e.g. my-agent), add an entry:
+    #  - name: my-agent
+    #    url: "https://my-agent.example.com/mcp"
     #    tokenSecret:
-    #      name: triage-agent-mcp-token
+    #      name: my-agent-mcp-token
     #      key: token
-    #      name: triage-agent-mcp-token
+    #      name: my-agent-mcp-token
     #      key: token
     #    tools:
     #      - get_triage_agent_status
@@ -510,5 +510,5 @@ mcp:
 # Code-graph maps. The deployment mounts no map volumes: a map reaches the server
 # as a MemoryCell whose data.graph carries the snapshot (it registers without a
 # restart), or as a snapshot file in the directory named by --mental-maps-dir in
-# `args`. To serve snapshot files from OCI image volumes, use the xray-graph chart.
+# `args`.
 # A snapshot must match the server's embedding fingerprint (model, dims, input cap).

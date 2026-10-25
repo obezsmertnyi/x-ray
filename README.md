@@ -136,7 +136,7 @@ Run the server with `--mental-maps-dir=/tmp/maps` (it may be empty: it turns the
 
 **Traces.** `--otel-endpoint=http://collector:4317` sends voice traces over OTLP/gRPC, and `--otel-token-secret=<secret>` sends a bearer token from a Secret with them, for a collector that asks for one.
 
-**Voice, tracing and the rest.** Every flag is listed by `xray -help`, and every chart value, with the optional `args` as comments, is in [`charts/xray/values.yaml`](charts/xray/values.yaml). To serve pre-built code-graph snapshots on their own, the separate `xray-graph` chart (`oci://ghcr.io/triageagent-dev/charts/xray-graph`) runs `serve-snapshots` with maps mounted as image volumes (Kubernetes 1.33 or later).
+**Voice, tracing and the rest.** Every flag is listed by `xray -help`, and every chart value, with the optional `args` as comments, is in [`charts/xray/values.yaml`](charts/xray/values.yaml). There is one chart; code maps load into it from a registry, as described above.
 
 ## Build an agent with X-Ray embedded
 

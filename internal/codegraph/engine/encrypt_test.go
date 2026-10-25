@@ -362,7 +362,7 @@ func TestRegistry_WritableFlushStaysEncryptedAcrossRestart(t *testing.T) {
 }
 
 // A key alone never encrypts a plaintext map: Den's main server serves the
-// academy catalog encrypted while its session notes must stay plaintext, so a
+// team catalog encrypted while its session notes must stay plaintext, so a
 // plaintext map loaded under an identity is flushed plaintext. Migration to
 // encrypted is opt-in through -snapshot-recipient.
 func TestRegistry_PlaintextMapStaysPlaintextUnderKeyAlone(t *testing.T) {

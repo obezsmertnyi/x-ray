@@ -213,7 +213,7 @@ func runServiceMap(argv []string) error {
 	dims := fs.Int("embedding-dims", 256, "embedding output dimensions (Matryoshka truncation)")
 	maxInputChars := fs.Int("embedding-max-input-chars", 8192, "hard char cap on a node's text before embedding")
 	logLevel := fs.String("log-level", "info", "debug|info|warn|error")
-	summary := fs.String("summary", "", `explicit router description for this map — what questions it answers, e.g. "students of the academy course: who they are, their experience, tools and expectations". A catalog has no README, so without it the map routes on a stats line ("code graph (Answer=111 Student=37)") that carries no topical signal, and a bare unmapped question never lands here.`)
+	summary := fs.String("summary", "", `explicit router description for this map — what questions it answers, e.g. "students of the team course: who they are, their experience, tools and expectations". A catalog has no README, so without it the map routes on a stats line ("code graph (Answer=111 Student=37)") that carries no topical signal, and a bare unmapped question never lands here.`)
 	keyPath := snapshotKeyFlag(fs)
 	recipient := snapshotRecipientFlag(fs)
 	_ = fs.Parse(argv)

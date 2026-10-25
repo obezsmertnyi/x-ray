@@ -100,7 +100,7 @@ type MCPSecretRef struct {
 
 // MCPServerConfig describes a remote MCP server whose tools are exposed to the voice model.
 type MCPServerConfig struct {
-	// Name is a short identifier used for logging (e.g. "triage-agent").
+	// Name is a short identifier used for logging (e.g. "my-agent").
 	Name string `json:"name"`
 	// URL is the base URL of the MCP server (e.g. "https://triage.internal/mcp").
 	URL string `json:"url"`

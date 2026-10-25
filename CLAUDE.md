@@ -9,7 +9,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **The web UI is part of the binary.** It lives in `ui/` (a Next.js static export), `make ui` builds it and stages it in `internal/webui/web/`, and `//go:embed` compiles it into `xray`, which serves it at `/` on the same origin as the API. `make build UI=0` builds without it (no Node needed) and the binary then serves the API alone. The code graph has its own, smaller embedded page at `/ui` (`xray graph serve`).
 
 **Key distinguishing characteristics:**
-- No dependency on Runway or LiveKit — those integrations have been removed
 - Single binary `xray` — API, controller, voice, MCP and the code graph (`xray graph`) in one binary; the web UI embedded (`ui/`, Node 22 to build it). Two builds: static (`make build`) and CGO with the Tree-sitter parser (`make graph-build`)
 - Kubernetes-native but gracefully degrades without k8s (no CRDs, no reconcilers required)
 - Module: `github.com/triageagent-dev/x-ray/v2`
@@ -43,7 +42,6 @@ xray/
 ├── api/v1/            # MemoryCell CRD (xray.triageagent.dev/v1, short: mcell)
 ├── charts/                  # Helm charts
 │   ├── xray/                # Main deployment chart
-│   └── xray-graph/          # code-graph snapshot server chart
 ├── docs/adr/                # Architecture Decision Records
 ├── scripts/                 # upsert_memory.py and other tooling
 ├── Makefile                 # Build targets (build, push, run, lint, test)
@@ -288,7 +286,7 @@ upgrade, so voice does not work there: use `make run` and the embedded UI for it
 - Version embedding requires `.ko.yaml` ldflags template (Makefile `push` target updates this correctly)
 - Voice session config (system prompt, enabled tools, voice name, model) is loaded from `system_configuration` memory cell at session start — no restart needed to update
 - **TODO: Voice tool content budget** — see `docs/adr/018-voice-tool-content-budget.md`. Files to touch: (1) `api/v1/memorycell_types.go` — add `MaxItemContentChars int` to `VoiceSessionConfig`; (2) `cmd/xray/main.go` — add `--voice-item-content-limit` flag, pass to `NewVoiceManager`; (3) `internal/xray/voice.go` — add `maxItemContent int` to `VoiceManager`, return from `loadSessionConfig` (CR wins over flag when non-zero); (4) `internal/xray/voice_tools.go` — pass limit into `buildVoiceTools` → `defSearchMemory`, apply truncation cap, reword `list_memory` description to require `kind` and steer model toward `search_memory`; (5) `charts/xray/values.yaml` — add `voice.itemContentLimit: 500`.
-- **DONE: OTEL tracing added to voice sessions** — see `docs/adr/007-otel-tracing-voice-sessions.md`. Files to touch: (1) create `internal/observability/otel.go` with `ConfigureOTel(endpoint, projectName string)`; (2) add `--otel-endpoint` and `--otel-project` flags + call `ConfigureOTel` in `cmd/xray/main.go` var block before `NewServer`; (3) add `tracing.endpoint` / `tracing.projectName` to `charts/xray/values.yaml`; (4) add `voice.session` and `llm.gemini_realtime` spans in `internal/xray/voice.go`; (5) add `tool.<name>` spans in `internal/xray/voice_tools.go`. Reference: `../triage-agent/internal/observability/otel.go` and `../triage-agent/internal/jucce/session.go`.
+- **DONE: OTEL tracing added to voice sessions** — see `docs/adr/007-otel-tracing-voice-sessions.md`. Files to touch: (1) create `internal/observability/otel.go` with `ConfigureOTel(endpoint, projectName string)`; (2) add `--otel-endpoint` and `--otel-project` flags + call `ConfigureOTel` in `cmd/xray/main.go` var block before `NewServer`; (3) add `tracing.endpoint` / `tracing.projectName` to `charts/xray/values.yaml`; (4) add `voice.session` and `llm.gemini_realtime` spans in `internal/xray/voice.go`; (5) add `tool.<name>` spans in `internal/xray/voice_tools.go`.
 
 <!-- code graph MCP tools -->
 ## MCP Tools: the X-Ray code graph

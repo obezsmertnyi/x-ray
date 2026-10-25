@@ -62,9 +62,9 @@ func TestSortHitsByFused_TiesKeepDeliveredOrder(t *testing.T) {
 func TestWeighByRoute_KeepsAWellMatchedMapAhead(t *testing.T) {
 	// The named map: rank scores as Index.Search stamps them, 1/(60+rank).
 	named := []index.Hit{
-		{QN: "academy//c.json::a1", Title: "a1", Score: 0.742, Fused: 1.0 / 60},
-		{QN: "academy//c.json::a2", Title: "a2", Score: 0.731, Fused: 1.0 / 61},
-		{QN: "academy//c.json::a3", Title: "a3", Score: 0.668, Fused: 1.0 / 62},
+		{QN: "team//c.json::a1", Title: "a1", Score: 0.742, Fused: 1.0 / 60},
+		{QN: "team//c.json::a2", Title: "a2", Score: 0.731, Fused: 1.0 / 61},
+		{QN: "team//c.json::a3", Title: "a3", Score: 0.668, Fused: 1.0 / 62},
 	}
 	// A map the router merely reached for, with the SAME internal rank scores.
 	other := []index.Hit{

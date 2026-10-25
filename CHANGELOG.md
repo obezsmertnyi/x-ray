@@ -2,9 +2,14 @@
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-25
+
 ### Fixed
 - **With sign-in off (`--dev`) the server has a user.** Every request without a session is the built-in user `dev`, a real session, so voice, personal notes, the live event stream, `/v1/auth/me` and the UI see one identity. Before, voice saved notes under the key of an empty ID, which the notes list and the event stream refused to serve, and the UI skipped notes for an anonymous caller. Behind a sign-in provider nothing changes. The voice `search_memory` also searches a user's private notes with the ranked search (keywords, then meaning) instead of keywords alone, and `list_memory` includes them.
 - **A voice session opens knowing the user's past.** The system prompt now carries the user's newest private notes (ten) and session memories (three), one line each, so the model starts with what it saved before instead of having to guess to search.
+
+### Removed
+- **The `xray-graph` chart.** The repository publishes one chart, `xray` (ADR-060). A map loads into the memory server from one `mental_map` cell (`data.graphRef`), so the standalone snapshot-server deployment is not needed to serve one. `xray graph serve-snapshots` is still in the image for a standalone snapshot server.
 
 ### Changed
 - **The API group is `xray.triageagent.dev`** (ADR-059), not `xray.ai`: `apiVersion: xray.triageagent.dev/v1`, the CRD `memorycells.xray.triageagent.dev`, the cell labels and the chart's RBAC. Breaking and without a conversion: an existing install applies the new CRD (Helm installs `crds/` only on a first install) and copies its cells across, changing `apiVersion`. The Triage core shares the type, so a deployment that runs both moves both.

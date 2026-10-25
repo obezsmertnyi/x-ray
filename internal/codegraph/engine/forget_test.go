@@ -245,22 +245,22 @@ func TestForget_Refusals(t *testing.T) {
 
 	r, dir, emb := memoryRegistry(t, true)
 	// A catalog map registered beside the notes map.
-	files := map[string]parser.Result{"academy.catalog.json": {Nodes: []parser.NodeInfo{{
-		Kind: "Student", Name: "janedoe", FilePath: "academy.catalog.json", Content: "Jane Doe. 11 years.",
+	files := map[string]parser.Result{"team.catalog.json": {Nodes: []parser.NodeInfo{{
+		Kind: "Student", Name: "janedoe", FilePath: "team.catalog.json", Content: "Jane Doe. 11 years.",
 	}}}}
-	ixr, err := NewIndexerFromResults(ctx, "academy", "memory://academy", files, emb, testLogger())
+	ixr, err := NewIndexerFromResults(ctx, "team", "memory://team", files, emb, testLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
 	fp := EmbedFingerprint{Model: "stub", Dims: emb.dims, MaxInputChars: 8192}
-	snap, err := ixr.SnapshotFor(ctx, "academy", fp, emb)
+	snap, err := ixr.SnapshotFor(ctx, "team", fp, emb)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteSnapshot(filepath.Join(dir, "academy.graph.gob.gz"), snap); err != nil {
+	if err := WriteSnapshot(filepath.Join(dir, "team.graph.gob.gz"), snap); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.AddSnapshot(filepath.Join(dir, "academy.graph.gob.gz")); err != nil {
+	if err := r.AddSnapshot(filepath.Join(dir, "team.graph.gob.gz")); err != nil {
 		t.Fatal(err)
 	}
 	note, err := r.Remember(ctx, "session", Note{Text: "a note"})
@@ -269,8 +269,8 @@ func TestForget_Refusals(t *testing.T) {
 	}
 
 	cases := map[string]struct{ label, qn, want string }{
-		"qn in another map":        {"session", "academy//academy.catalog.json::janedoe", `is in map "academy"`},
-		"catalog map as the label": {"academy", "academy//academy.catalog.json::janedoe", "not a notes map"},
+		"qn in another map":        {"session", "team//team.catalog.json::janedoe", `is in map "team"`},
+		"catalog map as the label": {"team", "team//team.catalog.json::janedoe", "not a notes map"},
 		"blank qn":                 {"session", " ", "qn is required"},
 		"blank label":              {"", note.QN, "label is required"},
 		"unknown map":              {"nope", "nope//memory/x.md::x", "no map named"},
@@ -283,10 +283,10 @@ func TestForget_Refusals(t *testing.T) {
 		}
 	}
 	// Nothing was touched by any refusal.
-	if hits := memoryHits(t, r, "academy", "student", index.Order{}); len(hits) != 0 {
+	if hits := memoryHits(t, r, "team", "student", index.Order{}); len(hits) != 0 {
 		t.Fatalf("the catalog map must be untouched, found Memory hits %+v", hits)
 	}
-	if _, ok := mustResolved(t, r, "academy").Graph.Get("academy//academy.catalog.json::janedoe"); !ok {
+	if _, ok := mustResolved(t, r, "team").Graph.Get("team//team.catalog.json::janedoe"); !ok {
 		t.Fatal("the Student node must still be there")
 	}
 	if _, ok := mustResolved(t, r, "session").Graph.Get(note.QN); !ok {

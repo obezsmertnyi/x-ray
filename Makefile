@@ -48,8 +48,8 @@ GRAPH_BIN       ?= bin/xray-parser
 GRAPH_ADDR      ?= :8084
 GRAPH_REPOS     ?= xray=$(CURDIR)
 SNAPSHOT_DIR    ?= $(HOME)/.xray-maps
-MAPS_IMAGE_OUT  ?= bin/xray-graph-maps.oci.tar
-MAPS_IMAGE_REF  ?= xray-graph-maps:local
+MAPS_IMAGE_OUT  ?= bin/xray-maps.oci.tar
+MAPS_IMAGE_REF  ?= xray-maps:local
 # k8s Secret name for the MCP bearer token; `make devenv` creates it (token: dev-admin-token-xray).
 MCP_TOKEN_SECRET    ?= xray-mcp-token
 
@@ -218,7 +218,7 @@ keygen: ## Generate an age identity for encrypted snapshots: make keygen SNAPSHO
 	@test -n "$(SNAPSHOT_KEY)" || { echo "SNAPSHOT_KEY=<path to write the identity> is required" >&2; exit 2; }
 	@go run ./cmd/xray graph keygen -out "$(SNAPSHOT_KEY)"
 
-maps-image: ## Pack snapshots into a local OCI image tarball: make maps-image MAPS="academy skills" (never pushes)
+maps-image: ## Pack snapshots into a local OCI image tarball: make maps-image MAPS="team skills" (never pushes)
 	@sh hack/maps-oci.sh "$(SNAPSHOT_DIR)" "$(MAPS_IMAGE_OUT)" "$(MAPS_IMAGE_REF)" $(MAPS)
 
 # Parser image: the same cmd/xray, built by ko with CGO on a glibc base so it can

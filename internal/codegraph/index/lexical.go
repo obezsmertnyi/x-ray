@@ -12,8 +12,8 @@ import (
 // Why this exists: cosine similarity over a 256-dim MRL-truncated embedding
 // loses queries whose target is phrased in different vocabulary, even when the
 // query's exact terms appear repeatedly in the target document. Measured on the
-// Claude Code memory corpus (docs/todo/cc-memory-eval.md): "I edited the jucce
-// cli source, what do I need to run?" missed a document containing `jucce` ×6,
+// Claude Code memory corpus (docs/todo/cc-memory-eval.md): "I edited the widget
+// cli source, what do I need to run?" missed a document containing `widget` ×6,
 // `cli` ×6 and `build-cli` ×4, losing to a document about the same topic. That
 // is a missing keyword channel, not a ranking-weight problem — no threshold on
 // a similarity-only signal recovers a term the embedding never encoded.
@@ -403,7 +403,7 @@ func lexFields(s string) []string {
 // lexStopwords are tokens carrying no retrieval signal. A natural-language
 // question ("what do I need to run?") is mostly these, and without removing
 // them the every-token-must-match gate rejects the very documents it should
-// find, since no memory contains the word "need" near the word "jucce".
+// find, since no memory contains the word "need" near the word "widget".
 var lexStopwords = map[string]bool{
 	"a": true, "the": true, "an": true, "and": true, "or": true, "but": true,
 	"is": true, "are": true, "was": true, "were": true, "be": true, "been": true, "being": true,

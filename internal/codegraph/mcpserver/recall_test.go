@@ -178,7 +178,7 @@ func TestRecall_LiveModeFiltersToTheNotesRepo(t *testing.T) {
 
 func TestRecall_UnknownNotesMapIsEmptyNotAnError(t *testing.T) {
 	g, ix := notesGraph(t, "session")
-	d := Deps{Resolver: &fakeResolver{label: "academy", g: g, ix: ix}, MemoryMap: "session"}
+	d := Deps{Resolver: &fakeResolver{label: "team", g: g, ix: ix}, MemoryMap: "session"}
 	out, err := recall(context.Background(), d, "", 0)
 	if err != nil {
 		t.Fatalf("a missing notes map is 'nothing remembered', not a failure: %v", err)
@@ -240,7 +240,7 @@ func TestRegisterRecall_NeedsOnlyANotesMap(t *testing.T) {
 
 // The framing sentence is on EVERY recall reply. A voice agent answered "what
 // are the FULL expectations" for a student from one remember note and never
-// searched the academy map again; the reply has to say that notes are what
+// searched the team map again; the reply has to say that notes are what
 // was said, not the record. The status sentence that explained an empty reply
 // stays verbatim beside it.
 func TestRecall_FramingNoteIsAlwaysPresent(t *testing.T) {
@@ -275,7 +275,7 @@ func TestRecall_FramingNoteIsAlwaysPresent(t *testing.T) {
 		t.Fatalf("an empty listing must keep its explanation verbatim AND the framing, got %q", note)
 	}
 
-	missing := Deps{Resolver: &fakeResolver{label: "academy", g: g, ix: ix}, MemoryMap: "session"}
+	missing := Deps{Resolver: &fakeResolver{label: "team", g: g, ix: ix}, MemoryMap: "session"}
 	out, _ = recall(context.Background(), missing, "", 0)
 	note, _ = out["note"].(string)
 	if !strings.Contains(note, `no notes map "session" on this server yet`) || !strings.Contains(note, recallFraming) {

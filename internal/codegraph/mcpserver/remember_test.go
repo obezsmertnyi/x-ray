@@ -39,14 +39,14 @@ func (f *fakeMemory) Forget(_ context.Context, label, qn string) (Forgotten, err
 func TestRemember_WritesOnlyToTheNotesMap(t *testing.T) {
 	fm := &fakeMemory{}
 	d := Deps{Memory: fm, MemoryMap: "session"}
-	out, err := remember(context.Background(), d, "A user asked for the most experienced student in academy", "academy question", map[string]string{"topic": "academy"}, 0)
+	out, err := remember(context.Background(), d, "A user asked for the most experienced student in team", "team question", map[string]string{"topic": "team"}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if fm.label != "session" {
 		t.Fatalf("every note must land in the server's notes map, got %q", fm.label)
 	}
-	if fm.note.Title != "academy question" || fm.note.Attrs["topic"] != "academy" || !strings.HasPrefix(fm.note.Text, "A user asked") {
+	if fm.note.Title != "team question" || fm.note.Attrs["topic"] != "team" || !strings.HasPrefix(fm.note.Text, "A user asked") {
 		t.Fatalf("note not passed through intact: %+v", fm.note)
 	}
 	if out["map"] != "session" || out["notes"] != 3 || out["at"] != "2026-09-15T19:00:00Z" {

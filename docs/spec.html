@@ -348,7 +348,7 @@ spec:
   <h3>Gob snapshots</h3>
   <p>A map is a pre-built graph saved as <code>&lt;name&gt;.graph.gob.gz</code> with its HNSW index. Loading a map embeds nothing in the pod. A snapshot reaches the server by one of three routes:</p>
   <ul>
-    <li><strong>A file.</strong> A snapshot in the directory named by <code>--mental-maps-dir</code>. The server walks it and loads every snapshot it finds, and watches it for new files. The <code>xray-graph</code> chart mounts snapshot images there as image volumes; the memory chart mounts none.</li>
+    <li><strong>A file.</strong> A snapshot in the directory named by <code>--mental-maps-dir</code>. The server walks it and loads every snapshot it finds, and watches it for new files.</li>
     <li><strong>Carried in a cell.</strong> A cell holds the gob in <code>data.graph</code>. The cell syncer decodes it and registers the map, and skips the work when the bytes are unchanged.</li>
     <li><strong>Pulled from a registry.</strong> A cell holds a digest-pinned OCI reference in <code>data.graphRef</code> (plain text, <code>name@sha256:...</code>), for a map too large for a cell (about 480 nodes). The server pulls the image, takes its one <code>*.graph.gob.gz</code> file and registers the map, once per reference, and retries every 30 seconds while the registry is unreachable. A tag is refused. <code>--registry-pull-secret</code> names a <code>dockerconfigjson</code> Secret for a private registry. The same key the Triage core reads.</li>
   </ul>
@@ -657,7 +657,7 @@ spec:
   </table></div>
   <p>The memory server's own access rules (<a href="#s6">section 06</a>) apply when it serves maps.</p>
   <h3>In a cluster</h3>
-  <p>Two ways to run maps. The memory server takes them as cells that carry a graph or point at one in a registry (<code>data.graphRef</code>), or as files in <code>--mental-maps-dir</code>; it needs that flag, even for an empty directory, to turn the map registry on. The separate <code>xray-graph</code> chart runs <code>serve-snapshots</code> as its own deployment, with maps from image volumes (Kubernetes 1.33 or later) or a volume seeded from a maps image, bearer-token authentication, an age identity, an HPA and an ingress. A maps image is a scratch image holding the snapshots under <code>/maps</code>; the build target never pushes it.</p>
+  <p>Two ways to run maps. The memory server takes them as cells that carry a graph or point at one in a registry (<code>data.graphRef</code>), or as files in <code>--mental-maps-dir</code>; it needs that flag, even for an empty directory, to turn the map registry on. There is one chart. A maps image is a scratch image holding the snapshots under <code>/maps</code>; the build target never pushes it.</p>
 </section>
 
 <!-- 10 -->
@@ -720,7 +720,6 @@ spec:
     <tr><td class="k">dev</td><td>Adds <code>--dev</code>: sign-in off, any origin accepted. For a first look through a port-forward only; without it the server refuses to start until a sign-in method and <code>--public-url</code> are set</td></tr>
     <tr><td class="k">github.secretName, azure.secretName</td><td>The Secret holding the sign-in client id and secret. Empty by default, so a fresh install needs no Secret of its own besides the MCP token</td></tr>
     <tr><td class="k">imagePullSecrets</td><td>Secrets for pulling the images from a private registry</td></tr>
-    <tr><td class="k">xray-graph chart</td><td>A separate chart for a snapshot server on its own: maps from image volumes or a seeded volume, authentication, an age identity, an HPA, an ingress</td></tr>
     <tr><td class="k">ingress, httpRoute</td><td>An Ingress, or a Gateway API route, in front of the server</td></tr>
   </table></div>
   <p>The chart installs the <code>MemoryCell</code> CRD from its <code>crds</code> directory on first install. Helm does not upgrade CRDs, so apply a changed CRD by hand.</p>

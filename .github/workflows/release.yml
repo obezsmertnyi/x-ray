@@ -136,21 +136,14 @@ jobs:
         sed -i "s#^  repository:.*#  repository: ${IMAGE}#" charts/xray/values.yaml
         sed -i "s/^  tag:.*/  tag: \"${VERSION}\"/" charts/xray/values.yaml
 
-    - name: Stamp the graph chart
-      run: |
-        sed -i "s/^version:.*/version: ${VERSION#v}/" charts/xray-graph/Chart.yaml
-        sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" charts/xray-graph/Chart.yaml
-
     - name: Lint charts
       run: |
-        helm lint charts/xray charts/xray-graph
+        helm lint charts/xray
 
     - name: Package and push charts (OCI)
       run: |
-        for c in xray xray-graph; do
-          helm package "charts/$c" --destination dist
-          helm push "dist/$c-${VERSION#v}.tgz" "${CHART_OCI}"
-        done
+        helm package charts/xray --destination dist
+        helm push "dist/xray-${VERSION#v}.tgz" "${CHART_OCI}"
 
   release:
     needs: [push-image, push-parser, push-chart]

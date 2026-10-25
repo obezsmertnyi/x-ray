@@ -433,17 +433,17 @@ func TestEditDistance_Runes(t *testing.T) {
 	// spurious 0 distance for multibyte words like "déjà", causing false matches.
 	assert.Equal(t, 0, editDistance("déjà", "déjà"))
 	assert.Equal(t, 1, editDistance("déjà", "dejà"), "one accented char differs")
-	assert.Greater(t, editDistance("lunchflow", "déjà"), 1, "must not spuriously match a multibyte word")
+	assert.Greater(t, editDistance("lunchpad", "déjà"), 1, "must not spuriously match a multibyte word")
 	// ASCII sanity unchanged.
 	assert.Equal(t, 1, editDistance("rac", "rag"))
-	assert.Equal(t, 1, editDistance("lunchflow", "launchflow"))
+	assert.Equal(t, 1, editDistance("lunchpad", "launchpad"))
 }
 
 func TestFuzzyWordMatch_CamelCaseJoin(t *testing.T) {
-	// normalizeQuery splits CamelCase ("LaunchFlow" → "launch flow"); a mishear
+	// normalizeQuery splits CamelCase ("LaunchPad" → "launch pad"); a mishear
 	// token must still match by rejoining adjacent words.
-	assert.True(t, fuzzyWordMatch("launch flow", "lunchflow"), "rejoined CamelCase split must match the mishear")
-	assert.False(t, fuzzyWordMatch("blog when déjà vu strategy", "lunchflow"), "unrelated multibyte words must not match")
+	assert.True(t, fuzzyWordMatch("launch pad", "lunchpad"), "rejoined CamelCase split must match the mishear")
+	assert.False(t, fuzzyWordMatch("blog when déjà vu strategy", "lunchpad"), "unrelated multibyte words must not match")
 }
 
 func TestMemoryStore_KeywordSearch_UnderscoreInContent(t *testing.T) {

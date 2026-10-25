@@ -46,7 +46,7 @@ type labelLister interface{ Labels() []string }
 
 // mapArgDesc documents the explicit-routing argument shared by the read-only
 // search tools, and NAMES the registered maps so a caller can bind a map the
-// user mentioned ("project Academy") to its label. Without that list a model has
+// user mentioned ("project Team") to its label. Without that list a model has
 // no way to know the argument has a value worth filling, and writes the map into
 // the query text instead — where it routes far worse than it does here. "map" is
 // the current noun; "project"/"repo" are kept as back-compat aliases (a loaded
