@@ -1,13 +1,9 @@
+# adapters/adk is a nested module that replaces the root module with ../.., which Dependabot
+# cannot resolve on its own; it follows the root module's versions.
 version: 2
 updates:
   - package-ecosystem: gomod
     directory: /
-    schedule: {interval: weekly}
-    groups:
-      go-minor-and-patch:
-        update-types: [minor, patch]
-  - package-ecosystem: gomod
-    directory: /adapters/adk
     schedule: {interval: weekly}
     groups:
       go-minor-and-patch:
