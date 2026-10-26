@@ -28,7 +28,7 @@ LDFLAGS := \
 LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
 LOCALOS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 
-.PHONY: help ui ui-dev ui-test build test lint fmt push image clean version generate sync-crds setup-envtest devenv run-dev run-dev-vertex graph-build graph-serve graph-test graph-install keygen maps-image
+.PHONY: help ui ui-dev ui-test build test lint fmt push image clean version generate sync-crds setup-envtest devenv run-dev run-dev-vertex graph-build graph-serve graph-test graph-install keygen maps-image spec-map
 
 ENVTEST_K8S_VERSION ?= 1.34.0
 OLLAMA_ENDPOINT     ?= http://localhost:8090
@@ -50,6 +50,7 @@ GRAPH_REPOS     ?= xray=$(CURDIR)
 SNAPSHOT_DIR    ?= $(HOME)/.xray-maps
 MAPS_IMAGE_OUT  ?= bin/xray-maps.oci.tar
 MAPS_IMAGE_REF  ?= xray-maps:local
+SPEC_MAP_REF    ?= ghcr.io/triageagent-dev/corpus-maps:xray-spec-local
 # k8s Secret name for the MCP bearer token; `make devenv` creates it (token: dev-admin-token-xray).
 MCP_TOKEN_SECRET    ?= xray-mcp-token
 
@@ -220,6 +221,9 @@ keygen: ## Generate an age identity for encrypted snapshots: make keygen SNAPSHO
 
 maps-image: ## Pack snapshots into a local OCI image tarball: make maps-image MAPS="team skills" (never pushes)
 	@sh hack/maps-oci.sh "$(SNAPSHOT_DIR)" "$(MAPS_IMAGE_OUT)" "$(MAPS_IMAGE_REF)" $(MAPS)
+
+spec-map: graph-build ## Build the spec as a graph map and an OCI image tarball in bin/spec-map (never pushes)
+	@sh hack/spec-map.sh $(GRAPH_BIN) bin/spec-map $(SPEC_MAP_REF)
 
 ##@ Cleanup
 
