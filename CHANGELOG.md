@@ -6,6 +6,7 @@
 
 ### Added
 - **The memory engine as a Go library.** `pkg/memstore` (items, store, hybrid search), `pkg/memstore/index` (HNSW index and embedder), `pkg/memstore/hub` (live events, with a transport between replicas), `pkg/memstore/cellsync` (the decision for a cell, and the private-owner migration) and `pkg/memstore/memtest`. The server and `pkg/memory` run on the same engine, with their options kept (`WithEmbeddings`, `WithWriteDedup`, `WithRecallShaping`, `WithOrigin`). See ADR-062.
+- `memstore.Lexicon`: the store's vocabulary index on its own (`Index`, `Remove`, `Candidates`, `DocFreq`, `Len`), for a host that prefilters its own documents with the same substring and one-edit matching.
 - Engine switches, each off or equal to the engine's behaviour by default: per-kind default deadlines and renewal on merge, `Vocabulary.FactConfidenceOptional`, `Config.SkipIDText`, `cellsync.Options.KeepRetired`, source collapse and link expansion on the searcher.
 
 ### Changed
