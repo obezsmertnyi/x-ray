@@ -17,6 +17,7 @@ import (
 
 	mcell "github.com/triageagent-dev/x-ray/v2/api/v1"
 	msnap "github.com/triageagent-dev/x-ray/v2/internal/codegraph/mcpserver"
+	"github.com/triageagent-dev/x-ray/v2/pkg/memstore"
 )
 
 // writeScopeTools require scopeWrite; everything else requires scopeRead.
@@ -172,7 +173,7 @@ func NewMCPServer(memory *MemoryStore, logger zerolog.Logger, getToken func() st
 		args := req.GetArguments()
 		kind, _ := args["kind"].(string)
 		subject, _ := args["subject"].(string)
-		if msg := validateSearchKind(kind); msg != "" {
+		if msg := ValidateSearchKind(kind); msg != "" {
 			return mcp.NewToolResultText(errJSON(msg)), nil
 		}
 		limit := listMemoryMaxLimit
@@ -201,7 +202,7 @@ func NewMCPServer(memory *MemoryStore, logger zerolog.Logger, getToken func() st
 		// Private cells are tenant-isolated by subject (ADR-028/037): the store
 		// hides them whenever subject is empty, so an unscoped search returns only
 		// public knowledge. Setting subject scopes to one owner's cells.
-		if msg := validateSearchKind(kind); msg != "" {
+		if msg := ValidateSearchKind(kind); msg != "" {
 			return mcp.NewToolResultText(errJSON(msg)), nil
 		}
 		limit := searchMemoryMaxLimit
@@ -266,7 +267,7 @@ func NewMCPServer(memory *MemoryStore, logger zerolog.Logger, getToken func() st
 		imageMime, _ := args["image_mime"].(string)
 		tags := stringList(args["tags"])
 		evidence := stringList(args["evidence_refs"])
-		if msg := validateWrite(kind, confidence); msg != "" {
+		if msg := ValidateWrite(kind, confidence); msg != "" {
 			return mcp.NewToolResultText(errJSON(msg)), nil
 		}
 		// A private cell must have an owner — reject an ownerless private write,
@@ -279,7 +280,7 @@ func NewMCPServer(memory *MemoryStore, logger zerolog.Logger, getToken func() st
 		// YYYY-MM-DD date) — reject anything else now rather than storing a
 		// value that silently never annotates.
 		if eventDate != "" {
-			if _, ok := parseEventDate(eventDate); !ok {
+			if _, ok := memstore.ParseEventDate(eventDate); !ok {
 				return mcp.NewToolResultText(`{"error":"event_date must be RFC3339 (e.g. 2026-06-15T09:00:00Z) or YYYY-MM-DD"}`), nil
 			}
 		}
@@ -414,7 +415,7 @@ func NewMCPServer(memory *MemoryStore, logger zerolog.Logger, getToken func() st
 		args := req.GetArguments()
 		str := func(k string) string { v, _ := args[k].(string); return v }
 		oldID, kind, scope, subject, confidence := str("old_id"), str("kind"), str("scope"), str("subject"), str("confidence")
-		if msg := validateWrite(kind, confidence); msg != "" {
+		if msg := ValidateWrite(kind, confidence); msg != "" {
 			return mcp.NewToolResultText(errJSON(msg)), nil
 		}
 		if scope == scopePrivate && subject == "" {

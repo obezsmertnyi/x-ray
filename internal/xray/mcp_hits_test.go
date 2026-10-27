@@ -37,7 +37,8 @@ func TestMCPSearchMemory_PublishesAHitForTheSharedItemsItReturns(t *testing.T) {
 	_, err = c.Initialize(ctx, init)
 	require.NoError(t, err)
 
-	events := store.hub.subscribeAs("")
+	events, stopEvents := store.hub.Subscribe("")
+	defer stopEvents()
 	var req mcp.CallToolRequest
 	req.Params.Name = "search_memory"
 	req.Params.Arguments = map[string]any{"query": "payments retries", "subject": "me"}
@@ -46,9 +47,9 @@ func TestMCPSearchMemory_PublishesAHitForTheSharedItemsItReturns(t *testing.T) {
 	assert.Contains(t, res.Content[0].(mcp.TextContent).Text, "priv-1", "the owner still gets the private item back")
 
 	select {
-	case raw := <-events:
+	case f := <-events:
 		var hit MemoryHitEvent
-		require.NoError(t, json.Unmarshal(raw, &hit))
+		require.NoError(t, json.Unmarshal(f.Data, &hit))
 		assert.Equal(t, []string{"pub-1"}, hit.ItemIDs, "the private item is returned to its owner but never named on the stream")
 		assert.Equal(t, []string{"operational_pattern"}, hit.Kinds)
 		assert.Empty(t, hit.Query, "the stream reaches every client and does not carry what was asked")

@@ -3,49 +3,11 @@ package xray
 import (
 	"context"
 	"fmt"
-	"math"
-	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestEditDistanceWithin_MatchesEditDistance(t *testing.T) {
-	words := []string{"", "a", "ab", "rag", "rac", "rec", "launch", "lunch", "launchpad", "lunchpad", "déjà", "deja", "café", "cafe", "queue", "quote"}
-	for _, a := range words {
-		for _, b := range words {
-			for max := 0; max <= 3; max++ {
-				want := editDistance(a, b) <= max
-				assert.Equal(t, want, editDistanceWithin(a, b, max), "%q vs %q within %d", a, b, max)
-			}
-		}
-	}
-
-	rng := rand.New(rand.NewSource(7))
-	const alphabet = "abcde"
-	random := func() string {
-		n := rng.Intn(8)
-		b := make([]byte, n)
-		for i := range b {
-			b[i] = alphabet[rng.Intn(len(alphabet))]
-		}
-		return string(b)
-	}
-	for range 2000 {
-		a, b := random(), random()
-		max := rng.Intn(4)
-		require.Equal(t, editDistance(a, b) <= max, editDistanceWithin(a, b, max), "%q vs %q within %d", a, b, max)
-	}
-}
-
-func TestIdfWeight(t *testing.T) {
-	assert.InDelta(t, math.Log(2), idfWeight(50, 50), 1e-9, "a token every cell has is the minimum")
-	assert.Greater(t, idfWeight(1, 50), idfWeight(25, 50), "a rarer token weighs more")
-	assert.InDelta(t, idfWeight(50, 50), idfWeight(0, 50), 1e-9, "an unseen token weighs the minimum, not the maximum")
-	assert.Equal(t, 1.0, idfWeight(3, 0), "no corpus, no opinion")
-	assert.Equal(t, 1.0, tokenWeight(nil, "anything"), "nil weights are uniform")
-}
 
 // A conversational question names one thing. The cell that names it must beat
 // the cells that only share the filler words, and must be found at all although
@@ -66,14 +28,18 @@ func TestKeywordSearch_RareEntityOutranksFiller(t *testing.T) {
 	assert.Equal(t, "bq", got[0].ID)
 }
 
-func TestKeywordSearch_ShortQueryStaysStrictAND(t *testing.T) {
+// A two-token name query ranks the item that has both tokens first. The engine's
+// coverage cutoff spares an item whose matched tokens carry enough of the query's
+// weight (docs/analysis/memory-search-review.md), so the item with one of the two
+// follows rather than being dropped.
+func TestKeywordSearch_ShortQueryRanksFullCoverageFirst(t *testing.T) {
 	s := newTestStore()
 	s.SetWriteDedup(false)
 	upsertItem(t, s, "cache", "stable_fact", "public", "Edge cache", "response caching layer", "", nil)
 	upsertItem(t, s, "proxy", "stable_fact", "public", "Edge proxy", "request routing layer", "", nil)
 	got := s.KeywordSearch("Edge cache", "", "", 10)
-	require.Len(t, got, 1, "a two-token name query is not loosened by the mass fallback")
-	assert.Equal(t, "cache", got[0].ID)
+	require.NotEmpty(t, got)
+	assert.Equal(t, "cache", got[0].ID, "the item with both tokens leads")
 }
 
 func TestKeywordSearch_IDIsSearchable(t *testing.T) {
@@ -84,14 +50,6 @@ func TestKeywordSearch_IDIsSearchable(t *testing.T) {
 	got := s.KeywordSearch("billing retry policy", "", "", 10)
 	require.Len(t, got, 1)
 	assert.Equal(t, "billing-retry-policy", got[0].ID)
-}
-
-func TestItemHaystack_LeavesOutGeneratedIDs(t *testing.T) {
-	assert.Equal(t, "body", itemHaystack(&MemoryItem{ID: newID(), Content: "body"}))
-	assert.Equal(t, "body my-cell", itemHaystack(&MemoryItem{ID: "my-cell", Content: "body"}))
-	assert.True(t, isGeneratedID("0123456789abcdef"))
-	assert.False(t, isGeneratedID("0123456789abcdeg"))
-	assert.False(t, isGeneratedID("short"))
 }
 
 func TestSearch_ExactIDMatchGoesFirst(t *testing.T) {
@@ -120,4 +78,14 @@ func TestSearch_ExactIDMatchGoesFirst(t *testing.T) {
 	for _, it := range got {
 		assert.Equal(t, "note", it.Kind, "the kind filter applies to the id match too")
 	}
+}
+
+func TestIsGeneratedID(t *testing.T) {
+	assert.True(t, isGeneratedID(newID()))
+	assert.True(t, isGeneratedID("0123456789abcdef"))
+	assert.False(t, isGeneratedID("0123456789abcdeg"))
+	assert.False(t, isGeneratedID("short"))
+	s := newTestStore()
+	id := upsertItem(t, s, "", "note", "public", "Plain title", "plain body", "", nil)
+	assert.Empty(t, s.KeywordSearch(id, "", "", 5), "a minted id is not search text")
 }

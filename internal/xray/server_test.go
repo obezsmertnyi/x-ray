@@ -18,7 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mcell "github.com/triageagent-dev/x-ray/v2/api/v1"
-	"github.com/triageagent-dev/x-ray/v2/internal/vectorstore"
+	"github.com/triageagent-dev/x-ray/v2/pkg/memstore/index"
 )
 
 // cancelAfter returns a context that cancels itself after a short delay,
@@ -620,12 +620,10 @@ func TestServer_UserNotes_List_UnauthenticatedReturnsEmpty(t *testing.T) {
 func newNeighborServer(t *testing.T) *Server {
 	t.Helper()
 	mem := NewMemoryStore()
-	mem.cells = vectorstore.NewMemoryCellStore(nil, zerolog.Nop())
+	mem.cells = index.NewCellStore(nil, zerolog.Nop())
 	seed := func(id, kind, scope string, v ...float32) {
-		mem.mu.Lock()
-		mem.items[id] = &MemoryItem{ID: id, Kind: kind, Scope: scope, Title: id, Content: id, Status: "active"}
-		mem.mu.Unlock()
-		mem.cells.SeedFromEmbedding(vectorstore.MemoryCellIndexEntry{ID: id, Kind: kind, Scope: scope, Title: id, Status: "active"}, v)
+		mem.Restore(context.Background(), &MemoryItem{ID: id, Kind: kind, Scope: scope, Title: id, Content: id, Status: "active"})
+		mem.cells.SeedFromEmbedding(index.IndexEntry{ID: id, Kind: kind, Scope: scope, Title: id, Status: "active"}, v)
 	}
 	seed("centre", "stable_fact", "public", 1, 0, 0, 0)
 	seed("near-a", "stable_fact", "public", 0.9, 0.1, 0, 0)

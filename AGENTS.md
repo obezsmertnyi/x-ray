@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - `cmd/xray/`: Go entrypoint (the memory server and `xray graph`).
 - `internal/xray/`: core runtime modules (HTTP server, memory, voice, auth, SSE hub, MCP server).
-- `internal/vectorstore/`, `internal/config/`, `internal/observability/`: supporting packages.
+- `pkg/memstore/index/`, `internal/config/`, `internal/observability/`: supporting packages.
 - `api/v1/` + `config/crd/`: Kubernetes CRD types and generated manifests.
 - `charts/xray/` and `deploy/`: Helm chart and deployment manifests.
 - `docs/adr/`: architecture decisions; read before changing core behavior.
@@ -20,7 +20,7 @@
 - Keep modules focused by domain (`voice.go`, `memory.go`, `mcpserver.go`) and place tests next to code (`*_test.go`).
 
 ## Testing Guidelines
-- Primary tests are Go unit/integration tests under `internal/**` and `internal/vectorstore/**`.
+- Primary tests are Go unit/integration tests under `internal/**` and `pkg/memstore/index/**`.
 - Name tests with clear behavior scope (`TestXxx` with subtests where useful).
 - Run `make test` before opening a PR; add tests for changed behavior, especially API, memory, and voice flows.
 

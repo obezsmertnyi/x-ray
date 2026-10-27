@@ -44,16 +44,16 @@ func TestDataFieldRoundTrip(t *testing.T) {
 	cell.Spec.Data = map[string]mcell.DataEntry{
 		"image": {Bytes: "abc123", Mime: "image/jpeg"},
 	}
-	it := cellToItem(cell)
+	it := viewOf(itemOfCell(cell))
 	img, ok := it.Data["image"]
 	assert.True(t, ok)
 	assert.Equal(t, "abc123", img.Bytes)
 	assert.Equal(t, "image/jpeg", img.Mime)
 }
 
-// ── cellSpecToDoc ─────────────────────────────────────────────────────────────
+// ── itemOfCell ────────────────────────────────────────────────────────────────
 
-func TestCellSpecToDoc(t *testing.T) {
+func TestItemOfCell(t *testing.T) {
 	spec := mcell.MemoryCellSpec{
 		ID:         "cell-1",
 		Kind:       "stable_fact",
@@ -67,7 +67,7 @@ func TestCellSpecToDoc(t *testing.T) {
 		EventDate:  "2026-01-01T00:00:00Z",
 	}
 
-	doc := cellSpecToDoc(spec)
+	doc := viewOf(itemOfCell(&mcell.MemoryCell{Spec: spec}))
 
 	assert.Equal(t, "cell-1", doc.ID)
 	assert.Equal(t, "stable_fact", doc.Kind)
@@ -100,9 +100,9 @@ func TestCellResourceName_Properties(t *testing.T) {
 	assert.Regexp(t, `-[0-9a-f]{8}$`, name1)
 }
 
-// ── itemToDoc ────────────────────────────────────────────────────────────────
+// ── specOf ───────────────────────────────────────────────────────────────────
 
-func TestItemToDoc(t *testing.T) {
+func TestSpecOf(t *testing.T) {
 	it := &MemoryItem{
 		ID:         "item-1",
 		Kind:       "stable_fact",
@@ -116,7 +116,7 @@ func TestItemToDoc(t *testing.T) {
 		EventDate:  "2026-06-01T00:00:00Z",
 	}
 
-	doc := itemToDoc(it)
+	doc := specOf(it, "inst")
 
 	assert.Equal(t, "item-1", doc.ID)
 	assert.Equal(t, "stable_fact", doc.Kind)
@@ -130,14 +130,14 @@ func TestItemToDoc(t *testing.T) {
 
 func TestMemoryStore_PublishHit(t *testing.T) {
 	s := NewMemoryStore()
-	ch := s.hub.subscribe()
-	defer s.hub.unsubscribe(ch)
+	ch, cancel := s.hub.Subscribe("")
+	defer cancel()
 
 	s.PublishHit([]string{"id1", "id2"}, "stable_fact", []string{"stable_fact", "note"})
 
 	msg := <-ch
-	assert.Contains(t, string(msg), "id1")
-	assert.Contains(t, string(msg), `"kinds":["stable_fact","note"]`)
+	assert.Contains(t, string(msg.Data), "id1")
+	assert.Contains(t, string(msg.Data), `"kinds":["stable_fact","note"]`)
 }
 
 // ── graph-carrying cell → in-memory map ───────────────────────────────────────
@@ -525,19 +525,11 @@ func TestSyncCell_PrivateUnchangedIsSilent(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, s.SyncCell(ctx, privateCell("priv-1", "alice", "hello")))
-	mem.mu.RLock()
-	first := mem.items["priv-1"]
-	mem.mu.RUnlock()
-	require.NotNil(t, first)
+	require.NotNil(t, mem.GetItem("priv-1"))
 
-	// Re-sync a distinct-but-identical cell object — the mirror must not
-	// replace the stored item (asserted by pointer identity: a skip leaves the
-	// old *MemoryItem in place, a write would install a freshly-converted one).
-	require.NoError(t, s.SyncCell(ctx, privateCell("priv-1", "alice", "hello")))
-	mem.mu.RLock()
-	second := mem.items["priv-1"]
-	mem.mu.RUnlock()
-	assert.Same(t, first, second, "unchanged reconcile must not replace the in-memory item")
+	// Re-sync a distinct-but-identical cell object: the mirror reports no change.
+	assert.False(t, mem.MirrorCell(privateCell("priv-1", "alice", "hello")),
+		"an unchanged reconcile must not change the store")
 }
 
 // TestSyncCell_PrivateEmbeddingOnlyDiffIgnored: the reconciler's embedding
@@ -548,19 +540,10 @@ func TestSyncCell_PrivateEmbeddingOnlyDiffIgnored(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, s.SyncCell(ctx, privateCell("priv-2", "alice", "hello")))
-	mem.mu.RLock()
-	first := mem.items["priv-2"]
-	mem.mu.RUnlock()
-	require.NotNil(t, first)
 
 	withEmbedding := privateCell("priv-2", "alice", "hello")
 	withEmbedding.Spec.Embedding = "some-stale-vector"
-	require.NoError(t, s.SyncCell(ctx, withEmbedding))
-
-	mem.mu.RLock()
-	second := mem.items["priv-2"]
-	mem.mu.RUnlock()
-	assert.Same(t, first, second, "embedding-only CR diff must not replace the in-memory item")
+	assert.False(t, mem.MirrorCell(withEmbedding), "an embedding-only CR diff must not change the store")
 }
 
 // TestSyncCell_PrivateContentChangeApplies: a genuine content change (kubectl
@@ -573,9 +556,7 @@ func TestSyncCell_PrivateContentChangeApplies(t *testing.T) {
 	require.NoError(t, s.SyncCell(ctx, privateCell("priv-3", "alice", "hello")))
 	require.NoError(t, s.SyncCell(ctx, privateCell("priv-3", "alice", "edited externally")))
 
-	mem.mu.RLock()
-	got := mem.items["priv-3"]
-	mem.mu.RUnlock()
+	got := mem.GetItem("priv-3")
 	require.NotNil(t, got)
 	assert.Equal(t, "edited externally", got.Content)
 }
@@ -632,10 +613,10 @@ func TestPersist_KeepsAStaleStatusInsteadOfReactivating(t *testing.T) {
 
 func TestCellToItem_ReadsProvenance(t *testing.T) {
 	cell := &mcell.MemoryCell{Spec: mcell.MemoryCellSpec{ID: "a", EvidenceRefs: []string{"e"}, Supersedes: []string{"s"}}}
-	it := cellToItem(cell)
-	assert.Equal(t, OriginDerived, it.Origin, "a cell stored without an origin reads as derived")
+	it := viewOf(itemOfCell(cell))
+	assert.Equal(t, OriginDerived, effectiveOrigin(it.Origin), "a cell stored without an origin reads as derived")
 	assert.Equal(t, []string{"e"}, it.EvidenceRefs)
 	assert.Equal(t, []string{"s"}, it.Supersedes)
 	cell.Spec.Origin = OriginVerified
-	assert.Equal(t, OriginVerified, cellToItem(cell).Origin)
+	assert.Equal(t, OriginVerified, viewOf(itemOfCell(cell)).Origin)
 }

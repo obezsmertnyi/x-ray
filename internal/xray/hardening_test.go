@@ -1,6 +1,7 @@
 package xray
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -109,13 +110,13 @@ func TestAllowedImageMime(t *testing.T) {
 func TestServer_ImageEndpoint_RejectsScriptableMime(t *testing.T) {
 	mem := NewMemoryStore()
 	// Store an item with an HTML payload masquerading as an image.
-	mem.items["evil"] = &MemoryItem{
+	mem.Restore(context.Background(), &MemoryItem{
 		ID:   "evil",
 		Kind: "system_identity",
 		Data: map[string]mcell.DataEntry{
 			"image": {Mime: "text/html", Bytes: "PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="},
 		},
-	}
+	})
 	s := NewServer(zerolog.Nop(), mem, nil, GitHubOAuthConfig{}, AzureOAuthConfig{}, "", 0, nil)
 
 	rec := httptest.NewRecorder()
@@ -127,13 +128,13 @@ func TestServer_ImageEndpoint_RejectsScriptableMime(t *testing.T) {
 
 func TestServer_ImageEndpoint_SetsNosniff(t *testing.T) {
 	mem := NewMemoryStore()
-	mem.items["ok"] = &MemoryItem{
+	mem.Restore(context.Background(), &MemoryItem{
 		ID:   "ok",
 		Kind: "system_identity",
 		Data: map[string]mcell.DataEntry{
 			"image": {Mime: "image/png", Bytes: "aGVsbG8="},
 		},
-	}
+	})
 	s := NewServer(zerolog.Nop(), mem, nil, GitHubOAuthConfig{}, AzureOAuthConfig{}, "", 0, nil)
 
 	rec := httptest.NewRecorder()

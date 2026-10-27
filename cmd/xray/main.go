@@ -36,10 +36,10 @@ import (
 	graphmcp "github.com/triageagent-dev/x-ray/v2/internal/codegraph/mcpserver"
 	arconfig "github.com/triageagent-dev/x-ray/v2/internal/config"
 	"github.com/triageagent-dev/x-ray/v2/internal/observability"
-	"github.com/triageagent-dev/x-ray/v2/internal/vectorstore"
 	"github.com/triageagent-dev/x-ray/v2/internal/version"
 	"github.com/triageagent-dev/x-ray/v2/internal/webui"
 	"github.com/triageagent-dev/x-ray/v2/internal/xray"
+	"github.com/triageagent-dev/x-ray/v2/pkg/memstore/index"
 )
 
 func init() {
@@ -263,7 +263,7 @@ func main() {
 	// Memory store: HNSW with Vertex AI or gateway, keyword fallback if neither set.
 	var memory *xray.MemoryStore
 	if embedEndpoint != "" || gcpProject != "" {
-		embedder, err := vectorstore.NewEmbedder(context.Background(), embedEndpoint, embedModel, gcpProject, gcpLocation, embedDims, embedMaxInputChars, log.Logger)
+		embedder, err := index.NewEmbedder(context.Background(), embedEndpoint, embedModel, gcpProject, gcpLocation, embedDims, embedMaxInputChars, log.Logger)
 		if err != nil {
 			log.Warn().Err(err).Msg("embedding init failed — using keyword memory")
 			memory = xray.NewMemoryStore()
@@ -479,7 +479,7 @@ func main() {
 			// — the general counterpart to the episodic-only reaper above. No-op
 			// when --retention-sweep-interval is 0. mgrCtx bounds it to process
 			// lifetime.
-			memory.StartRetentionSweep(mgrCtx, cellSyncer, retentionSweepInterval)
+			cellSyncer.StartRetentionSweep(mgrCtx, namespace, retentionSweepInterval)
 
 			// Embedding backfill: give CRs that lack spec.embedding a vector and patch it back.
 			// The cache now holds all items; this pass only calls the embedder for new/stripped CRs.

@@ -10,11 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	mcell "github.com/triageagent-dev/x-ray/v2/api/v1"
+	"github.com/triageagent-dev/x-ray/v2/pkg/memstore"
 )
 
 func newTestStore() *MemoryStore {
@@ -46,9 +44,7 @@ func upsertEventItem(t *testing.T, s *MemoryStore, id, kind, scope, title, conte
 // (docs/todo/graphiti-comparison-refinement.md item #4) bypass Upsert the
 // same way seedSystemConfig does for its own unsettable field.
 func seedLinkedItem(s *MemoryStore, id, kind, scope, title, content, subject, status string, links []mcell.ThoughtLink) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.items[id] = &MemoryItem{
+	s.eng.Put(itemOfView(&MemoryItem{
 		ID:      id,
 		Kind:    kind,
 		Scope:   scope,
@@ -57,15 +53,13 @@ func seedLinkedItem(s *MemoryStore, id, kind, scope, title, content, subject, st
 		Content: content,
 		Status:  status,
 		Links:   links,
-	}
+	}, s.instance))
 }
 
 // seedSystemConfig writes a system_configuration item directly into s.items,
 // bypassing the Upsert guard. Use only in tests that verify filtering behaviour.
 func seedSystemConfig(s *MemoryStore, id, subject string, tags []string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.items[id] = &MemoryItem{
+	s.eng.Put(memstore.Item{MemoryCellSpec: mcell.MemoryCellSpec{
 		ID:      id,
 		Kind:    "system_configuration",
 		Scope:   "global",
@@ -74,7 +68,7 @@ func seedSystemConfig(s *MemoryStore, id, subject string, tags []string) {
 		Content: "system prompt",
 		Status:  "active",
 		Tags:    tags,
-	}
+	}})
 }
 
 // ── Upsert ────────────────────────────────────────────────────────────────────
@@ -102,10 +96,9 @@ func TestMemoryStore_UpsertUpdate(t *testing.T) {
 }
 
 // TestMemoryStore_UpsertUpdatesCRBackedItem guards the restart case: an item may
-// exist only as a CR (seeded by an earlier pod) and never have been written to
-// this pod's ephemeral s.items. Upsert-by-id must then report "updated" — not
-// "created" — and preserve the original CreatedAt. Regression for the bug where
-// status was decided purely from s.items, so any post-restart edit lied "created".
+// exist only as a cell (seeded by an earlier pod) and never have been written by
+// this pod. Upsert-by-id must then report "updated", not "created", and preserve
+// the original CreatedAt.
 func TestMemoryStore_UpsertUpdatesCRBackedItem(t *testing.T) {
 	created := time.Date(2026, 6, 2, 10, 19, 50, 0, time.UTC)
 	cell := &mcell.MemoryCell{
@@ -117,18 +110,8 @@ func TestMemoryStore_UpsertUpdatesCRBackedItem(t *testing.T) {
 		},
 	}
 
-	scheme := runtime.NewScheme()
-	require.NoError(t, mcell.AddToScheme(scheme))
-	reader := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(cell).
-		WithIndex(&mcell.MemoryCell{}, "spec.id", func(o client.Object) []string {
-			return []string{o.(*mcell.MemoryCell).Spec.ID}
-		}).
-		Build()
-
 	s := newTestStore()
-	s.SetCacheReader(reader, "avatar")
+	s.MirrorCell(cell)
 
 	res, errMsg := s.Upsert(context.Background(), "prior-pod-id",
 		"system_identity", "global", "Illia", "v2", "Illia", "", "", nil, nil)
@@ -147,10 +130,10 @@ func TestMemoryStore_UpsertUpdatesCRBackedItem(t *testing.T) {
 // live in their UI.
 func TestMemoryStore_PrivateNoteOwnerScoped(t *testing.T) {
 	s := newTestStore()
-	shared := s.hub.subscribe()             // anonymous / other clients (empty hash)
-	owner := s.hub.subscribeAs("user-hash") // the note's owner
-	defer s.hub.unsubscribe(shared)
-	defer s.hub.unsubscribe(owner)
+	shared, stopShared := s.hub.Subscribe("")        // anonymous / other clients (empty hash)
+	owner, stopOwner := s.hub.Subscribe("user-hash") // the note's owner
+	defer stopShared()
+	defer stopOwner()
 
 	// Control: a normal kind broadcasts an upsert event to all clients.
 	upsertItem(t, s, "", "stable_fact", "public", "Public", "shared body", "", nil)
@@ -164,17 +147,20 @@ func TestMemoryStore_PrivateNoteOwnerScoped(t *testing.T) {
 	// A private note must NOT hit the shared/anonymous channel...
 	upsertItem(t, s, "", "note", "private", "Secret", "private meeting plan", "user-hash", nil)
 	select {
-	case raw := <-shared:
-		t.Fatalf("private note must not be broadcast to other clients, got: %s", raw)
+	case f := <-shared:
+		t.Fatalf("private note must not be broadcast to other clients, got: %s", f.Data)
 	case <-time.After(100 * time.Millisecond):
 		// no event — correct.
 	}
 
 	// ...but it MUST reach the owner's channel.
 	select {
-	case raw := <-owner:
-		var got MemoryChangeEvent
-		require.NoError(t, json.Unmarshal(raw, &got))
+	case f := <-owner:
+		var got struct {
+			Op   string
+			Item MemoryItem
+		}
+		require.NoError(t, json.Unmarshal(f.Data, &got))
 		assert.Equal(t, "upsert", got.Op)
 		assert.Equal(t, "note", got.Item.Kind)
 		assert.Equal(t, "private meeting plan", got.Item.Content)
@@ -403,49 +389,6 @@ func TestMemoryStore_KeywordSearch_NoEmbedderNeeded(t *testing.T) {
 	assert.Equal(t, "Auth middleware", results[0].Title)
 }
 
-func TestFuseRRF_OrdersByFusedRank(t *testing.T) {
-	a := &MemoryItem{ID: "a", Title: "A"}
-	b := &MemoryItem{ID: "b", Title: "B"}
-	c := &MemoryItem{ID: "c", Title: "C"}
-
-	// lexical: [a, b]; semantic: [b, c]. b appears in both at good ranks,
-	// so RRF must float b above a (rank-0 lex, absent from sem) and c.
-	lex := []*MemoryItem{a, b}
-	sem := []*MemoryItem{b, c}
-	got := fuseRRF(lex, sem, 10)
-
-	require.Len(t, got, 3)
-	assert.Equal(t, "b", got[0].ID, "item present in both lists must rank first")
-	ids := []string{got[0].ID, got[1].ID, got[2].ID}
-	assert.ElementsMatch(t, []string{"a", "b", "c"}, ids, "all items from both lists are fused, deduped")
-}
-
-func TestFuseRRF_RespectsLimit(t *testing.T) {
-	mk := func(id string) *MemoryItem { return &MemoryItem{ID: id, Title: id} }
-	lex := []*MemoryItem{mk("a"), mk("b"), mk("c")}
-	sem := []*MemoryItem{mk("d"), mk("e")}
-	got := fuseRRF(lex, sem, 2)
-	assert.Len(t, got, 2, "fused output must be truncated to limit")
-}
-
-func TestEditDistance_Runes(t *testing.T) {
-	// editDistance must measure in runes, not bytes. A byte-indexed DP returned a
-	// spurious 0 distance for multibyte words like "déjà", causing false matches.
-	assert.Equal(t, 0, editDistance("déjà", "déjà"))
-	assert.Equal(t, 1, editDistance("déjà", "dejà"), "one accented char differs")
-	assert.Greater(t, editDistance("lunchpad", "déjà"), 1, "must not spuriously match a multibyte word")
-	// ASCII sanity unchanged.
-	assert.Equal(t, 1, editDistance("rac", "rag"))
-	assert.Equal(t, 1, editDistance("lunchpad", "launchpad"))
-}
-
-func TestFuzzyWordMatch_CamelCaseJoin(t *testing.T) {
-	// normalizeQuery splits CamelCase ("LaunchPad" → "launch pad"); a mishear
-	// token must still match by rejoining adjacent words.
-	assert.True(t, fuzzyWordMatch("launch pad", "lunchpad"), "rejoined CamelCase split must match the mishear")
-	assert.False(t, fuzzyWordMatch("blog when déjà vu strategy", "lunchpad"), "unrelated multibyte words must not match")
-}
-
 func TestMemoryStore_KeywordSearch_UnderscoreInContent(t *testing.T) {
 	s := newTestStore()
 	upsertItem(t, s, "", "system_identity", "global", "Auth Service", "handles JWT token validation", "docs", nil)
@@ -478,45 +421,6 @@ func TestMemoryStore_Search_SkipsSemanticWhenKeywordSufficient(t *testing.T) {
 
 	results := s.Search(context.Background(), "Auth", "", "", 10)
 	assert.GreaterOrEqual(t, len(results), 2, "keyword returned >=2, semantic path must not be needed")
-}
-
-// TestShouldShortCircuit_TruthTable is a unit test of the decision itself
-// (shouldShortCircuit) rather than of Search end-to-end: the test suite has
-// no fake/stub embedder that lets a MemoryStore exercise the fused path with
-// s.cells != nil — a keyword-only store panics if s.cells were non-nil (see
-// TestMemoryStore_Search_SkipsSemanticWhenKeywordSufficient's comment), and
-// vectorstore's own tests seed vectors directly rather than faking the
-// embedder's HTTP round-trip — so the short-circuit decision is exercised
-// directly against its full truth table, plus a check that
-// SetLexicalShortCircuit(on) drives the store's alwaysFuse field with the
-// expected (inverted) polarity.
-func TestShouldShortCircuit_TruthTable(t *testing.T) {
-	cases := []struct {
-		name                               string
-		hasCells, lexConfident, alwaysFuse bool
-		want                               bool
-	}{
-		{"no cells, not confident, short-circuit on", false, false, false, true},
-		{"no cells, confident, short-circuit on", false, true, false, true},
-		{"no cells, not confident, short-circuit off", false, false, true, true},
-		{"no cells, confident, short-circuit off", false, true, true, true},
-		{"cells, not confident, short-circuit on: fuse", true, false, false, false},
-		{"cells, confident, short-circuit on: lexical wins", true, true, false, true},
-		{"cells, not confident, short-circuit off: fuse", true, false, true, false},
-		{"cells, confident, short-circuit off: fuse anyway", true, true, true, false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, shouldShortCircuit(c.hasCells, c.lexConfident, c.alwaysFuse))
-		})
-	}
-
-	s := newTestStore()
-	assert.False(t, s.alwaysFuse.Load(), "short-circuit is on (alwaysFuse=false) by default")
-	s.SetLexicalShortCircuit(false)
-	assert.True(t, s.alwaysFuse.Load(), "SetLexicalShortCircuit(false) forces always-fuse")
-	s.SetLexicalShortCircuit(true)
-	assert.False(t, s.alwaysFuse.Load(), "SetLexicalShortCircuit(true) restores the short-circuit")
 }
 
 // ── AllItems / KnowledgeIndex ─────────────────────────────────────────────────
@@ -707,7 +611,7 @@ func TestUpsert_PrivateItemIsNotWritableBySomeoneElse(t *testing.T) {
 	_, msg = s.Upsert(ctx, "note-1", "note", "public", "taken", "overwritten", "mallory", "", "", nil, nil)
 	assert.Equal(t, "id is not available", msg)
 
-	got := s.getByID(ctx, "note-1")
+	got := s.GetItem("note-1")
 	require.NotNil(t, got)
 	assert.Equal(t, "original", got.Content)
 	assert.Equal(t, "private", got.Scope)
@@ -716,5 +620,5 @@ func TestUpsert_PrivateItemIsNotWritableBySomeoneElse(t *testing.T) {
 	// The owner can still update it.
 	_, msg = s.Upsert(ctx, "note-1", "note", "private", "mine", "edited", "alice", "", "", nil, nil)
 	assert.Empty(t, msg)
-	assert.Equal(t, "edited", s.getByID(ctx, "note-1").Content)
+	assert.Equal(t, "edited", s.GetItem("note-1").Content)
 }

@@ -195,6 +195,38 @@ func TestStore_FileKeepsEverythingAcrossARestart(t *testing.T) {
 	assert.Empty(t, hits, "a refuted item stays out of search after a restart")
 }
 
+// A file written by an earlier release names a private item's owner as its
+// subject. It loads, the owner still reads it, and nobody else does.
+func TestStore_FileFromAnEarlierReleaseStillLoads(t *testing.T) {
+	ctx := context.Background()
+	file := filepath.Join(t.TempDir(), "memory.json")
+	legacy := `[
+	 {"id":"shared-1","kind":"stable_fact","scope":"public","title":"Queue drains hourly","content":"The ingest queue drains once an hour.","confidence":"high","status":"active","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"},
+	 {"id":"mine-1","kind":"note","scope":"private","subject":"me","title":"Scratch","content":"only for me","status":"active","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}
+	]`
+	require.NoError(t, os.WriteFile(file, []byte(legacy), 0o600))
+
+	s := newStore(t, memory.WithFile(file))
+	hits, err := s.Search(ctx, "queue drains")
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "shared-1", hits[0].ID)
+
+	got, err := s.Get(ctx, "mine-1", xray.WithSubject("me"))
+	require.NoError(t, err)
+	assert.Equal(t, "only for me", got.Content)
+	_, err = s.Get(ctx, "mine-1", xray.WithSubject("someone-else"))
+	assert.True(t, xray.IsNotFound(err))
+	_, err = s.Get(ctx, "mine-1")
+	assert.True(t, xray.IsNotFound(err))
+
+	require.NoError(t, s.Close())
+	again := newStore(t, memory.WithFile(file))
+	got, err = again.Get(ctx, "mine-1", xray.WithSubject("me"))
+	require.NoError(t, err)
+	assert.Equal(t, "only for me", got.Content, "the file written back reads the same")
+}
+
 // synonyms stands in for what a real model knows: these words mean the same.
 var synonyms = map[string]string{"incident": "outage", "incidents": "outage", "outages": "outage"}
 
