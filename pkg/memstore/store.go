@@ -1611,6 +1611,13 @@ func (s *Store) NotifyHit(itemIDs []string, query, kind string, kinds []string) 
 // CloneInto copies the items into a new store guarded by mu, for a deep copy of
 // the host's state. A cfg with no vocabulary inherits the source's, and the
 // copy's lexical indexes are built from the copied items.
+//
+// CloneInto takes no lock on the source: the caller holds the source's lock,
+// read or write, for the whole call. That is what lets a host that shares one
+// mutex between the store and its other state clone both under it without
+// deadlocking on a second acquisition. A caller that does not share the lock and
+// clones while writers run must take the store's own lock around the call (see
+// WithLocker); an unguarded concurrent clone is a data race.
 func (s *Store) CloneInto(l Locker, cfg Config) *Store {
 	if cfg.Vocabulary.isZero() {
 		cfg.Vocabulary = s.cfg.Vocabulary

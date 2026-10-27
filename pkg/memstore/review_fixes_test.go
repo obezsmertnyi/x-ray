@@ -88,3 +88,28 @@ func TestStore_KeywordSearchOwnRanksOnlyThePersonsPrivateItems(t *testing.T) {
 	assert.Equal(t, []string{"mine"}, ids(got))
 	assert.Empty(t, s.KeywordSearchOwn("", "gizmo", "", 3), "no person, no private items")
 }
+
+// CloneInto takes no lock of its own: the caller holds the source's lock. A host
+// that shares one mutex between the store and its other state clones under it,
+// and a concurrent writer waits for the clone rather than racing it.
+func TestStore_CloneIntoRunsUnderTheCallersLock(t *testing.T) {
+	host := &sync.RWMutex{}
+	src := NewStore(WithLocker(host))
+	upsert(t, src, mk("a", "note", "Ingest queue", "the ingest queue drains hourly"))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 100; i++ {
+			_, _ = src.Upsert(mk("w", "note", "Writer", "written while a clone may run"))
+		}
+	}()
+
+	for i := 0; i < 100; i++ {
+		host.RLock() // the caller's lock, which the store shares
+		clone := src.CloneInto(&sync.RWMutex{}, Config{})
+		host.RUnlock()
+		assert.True(t, clone.Indexed("a"))
+	}
+	<-done
+}
