@@ -16,6 +16,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/triageagent-dev/x-ray/v2/internal/headroom"
 	"github.com/triageagent-dev/x-ray/v2/internal/version"
+	"github.com/triageagent-dev/x-ray/v2/pkg/memstore"
 	"google.golang.org/genai"
 )
 
@@ -143,7 +144,7 @@ func defListMemory(memory *MemoryStore, userHash string) voiceToolDef {
 		},
 		handler: func(ctx context.Context, args map[string]any) (string, error) {
 			kind, _ := args["kind"].(string)
-			if msg := validateSearchKind(kind); msg != "" {
+			if msg := ValidateSearchKind(kind); msg != "" {
 				return errJSON(msg), nil
 			}
 			limit := 20
@@ -200,7 +201,7 @@ func defSearchMemory(memory *MemoryStore, userHash string, headroomLimit int, lo
 		handler: func(ctx context.Context, args map[string]any) (string, error) {
 			query, _ := args["query"].(string)
 			kind, _ := args["kind"].(string)
-			if msg := validateSearchKind(kind); msg != "" {
+			if msg := ValidateSearchKind(kind); msg != "" {
 				return errJSON(msg), nil
 			}
 			limit := 10
@@ -253,7 +254,7 @@ func defSearchMemory(memory *MemoryStore, userHash string, headroomLimit int, lo
 				// item #1) goes into Title, not Content: Content is what
 				// CompressRows lossy-truncates below, and a truncated tail would
 				// cut the annotation off; Title always passes through whole.
-				title := it.Title + eventTimeAnnotation(it.EventDate)
+				title := it.Title + memstore.EventTimeAnnotation(it.EventDate)
 				hrRows = append(hrRows, headroom.Row{ID: it.ID, Kind: it.Kind, Title: title, Content: it.Content})
 			}
 			// Headroom token compression (ADR-038): lossy-compress long bodies
@@ -548,7 +549,7 @@ func defUpsertMemory(memory *MemoryStore, syncer *CellSyncer, namespace, userHas
 			if kind == "" || scope == "" || title == "" || content == "" {
 				return "", fmt.Errorf("kind, scope, title, and content are required")
 			}
-			if msg := validateWrite(kind, confidence); msg != "" {
+			if msg := ValidateWrite(kind, confidence); msg != "" {
 				return errJSON(msg), nil
 			}
 			// Voice is user-scoped: any private write is forced to this user's

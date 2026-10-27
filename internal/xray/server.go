@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/triageagent-dev/x-ray/v2/internal/webui"
 	"io/fs"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/triageagent-dev/x-ray/v2/internal/webui"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -580,7 +581,7 @@ func (s *Server) registerMemoryRoutes() {
 		// Resolve the caller so private events (personal notes) are delivered to
 		// this user's channel only.
 		owner, _ := s.noteOwner(r)
-		s.memory.hub.ServeWS(w, r, owner)
+		serveMemoryEvents(s.memory.hub, w, r, owner)
 	})
 }
 

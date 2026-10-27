@@ -15,6 +15,7 @@ Both are searched by keyword and by meaning, and a web UI that is part of the bi
 |---|---|---|
 | A shared memory service for your agents and your team | the Helm chart | [Run it on Kubernetes](#run-it-on-kubernetes) |
 | Memory and a code graph inside one agent, no server | `pkg/memory`, `pkg/codegraph` | [Build an agent with X-Ray embedded](#build-an-agent-with-x-ray-embedded) |
+| The memory engine inside your own service (store, search, cell sync, live events) | `pkg/memstore` and its subpackages | [Go reference](https://pkg.go.dev/github.com/triageagent-dev/x-ray/v2/pkg/memstore) |
 | An agent that uses an X-Ray that is already running | `pkg/xray`, or any MCP client | [Connect an agent to X-Ray](#connect-an-agent-to-x-ray) |
 
 ## What it does

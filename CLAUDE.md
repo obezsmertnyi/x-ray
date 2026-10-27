@@ -33,9 +33,9 @@ xray/
 │   ├── codegraph/           # Code graph (`xray graph`): parser, engine, graph, index, mcpserver, httpguard, ...
 │   ├── webui/               # Embeds the UI export, serves it with a per-document CSP
 │   ├── config/              # Configuration & Kubernetes Secret watchers
-│   ├── vectorstore/         # HNSW indexing & embeddings (Vertex AI or gateway)
 │   └── version/             # Version injection via ldflags
 ├── pkg/memory/              # Public library: the memory store, in the caller's process
+├── pkg/memstore/index/      # Public: HNSW cell index and embeddings (Vertex AI or gateway)
 ├── pkg/codegraph/           # Public library: the code graph, in the caller's process
 ├── pkg/xray/                # Public Go SDK: a typed MCP client, and the Memory and CodeGraph interfaces both implement
 ├── ui/                      # Web UI: Next.js static export, embedded into the binary

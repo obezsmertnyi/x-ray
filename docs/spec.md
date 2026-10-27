@@ -65,7 +65,7 @@ spec:
 | confidence, status | `high`, `medium` or `low`; and a status, `active` on creation |
 | tags | Free labels. A tag selects a UI category when a deployment defines one |
 | eventDate | When the item happened, RFC 3339 or a bare date |
-| staleAfter | Deadline after which the retention sweep deletes the item ([Retention](#retention)) |
+| staleAfter | Deadline at which the server deletes the item ([Retention](#retention)) |
 | origin | Who wrote it: `human`, `observed`, `verified` or `derived` ([below](#provenance)) |
 | supersedes, evidenceRefs | Ids of the items this one absorbed, and the ids of the cells or events it was drawn from |
 | links | Typed edges to other cells: `toId`, `relation`, `weight`, `evidenceRefs` |
@@ -94,7 +94,7 @@ The first ten rows are the kinds `upsert_memory` lists. The last three are writt
 
 ### Scope
 
-Privacy is a `scope`, separate from `kind`. A `private` item is isolated to its `subject`: reading, fetching or deleting it needs the caller to present that subject, and its live events go only to the owner. A `public` item is shared knowledge, visible on the graph and in search. One predicate, private when `scope` is `private` or the kind is `system_configuration`, guards every read path. Callers that set a scope are trusted for it: the subject is a tenant key, not an authenticated identity. Voice writes are always private, with the subject set to a hash of the signed-in user.
+Privacy is a `scope`, separate from `kind`. A `private` item belongs to the owner named by the `subject` it was written with: reading, fetching or deleting it needs the caller to present that owner, and its live events go only to the owner. The owner is stored as a `user:<owner>` tag; the cell's own `subject` names the instance that holds it. A `public` item is shared knowledge, visible on the graph and in search. One predicate, private when `scope` is `private` or the kind is `system_configuration`, guards every read path. Callers that set a scope are trusted for it: the owner is a key the caller presents, not an authenticated identity. Voice writes are always private, with the subject set to a hash of the signed-in user.
 
 ### Provenance
 
@@ -447,7 +447,7 @@ Two ways to run maps. The memory server takes them as cells that carry a graph o
 Memory decays by deadline. The only background work in the server is the deletion of expired items, and it makes no model call.
 
 - **Default deadlines.** A newly created `event` gets 30 days, a `recent_change` or `note` 90 days, a `hypothesis` one day and an `unknown` seven, unless the caller sets `staleAfter`. Other kinds never expire by default. The defaults are fixed in code. Restating a hypothesis or unknown (the write merges into the existing cell) renews its deadline.
-- **Retention sweep.** Every `--retention-sweep-interval` (one hour; 0 disables) the server hard-deletes items past `staleAfter`. Durable and configuration kinds are skipped.
+- **Deletion at the deadline.** An item past `staleAfter` is hard-deleted when its cell is next decided, which is when the deadline falls: the controller requeues the cell for that moment. Every `--retention-sweep-interval` (one hour; 0 disables) a sweep deletes any item the requeue missed, such as one whose cell was never reconciled. Durable and configuration kinds are skipped, and a refuted or superseded item is kept as an audit trail until its own deadline.
 - **Episodic memory.** Older than `--episodic-ttl` (7 days) it is dropped from `recent_memory` at read time, and a reaper deletes the cell.
 
 A delete of a cell that another replica already removed counts as done, so the sweep is safe on several replicas.
@@ -467,7 +467,7 @@ The chart runs one replica, and one is the supported setting. Cells, sessions an
 | Items written without a cluster client | Per pod |
 | Voice sessions | Bound to the connection, so to one pod |
 | Voice quota counters | Held per pod and mirrored to the configuration cell's status, so several replicas do not add up |
-| Retention sweep | Runs on every replica; deletes are idempotent |
+| Retention | Runs on every replica; deletes are idempotent |
 
 There is no leader election, because the server has no work that must run once. Search-hit events have publish hooks (`SetHitPublishHook`) and an apply call for remote events, but no transport is wired to them, so those pulses stay on the pod that served the search.
 

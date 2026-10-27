@@ -8,44 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	mcell "github.com/triageagent-dev/x-ray/v2/api/v1"
+	"github.com/triageagent-dev/x-ray/v2/pkg/memstore"
 )
-
-func TestResolveOrigin(t *testing.T) {
-	cases := []struct {
-		name        string
-		existing    string
-		hasExisting bool
-		incoming    string
-		want        string
-		wantErr     bool
-	}{
-		{"new cell, nothing said", "", false, "", OriginDerived, false},
-		{"new cell, human", "", false, OriginHuman, OriginHuman, false},
-		{"update keeps the existing origin", OriginObserved, true, "", OriginObserved, false},
-		{"update of a cell with none is derived", "", true, "", OriginDerived, false},
-		{"derived cannot replace human", OriginHuman, true, OriginDerived, "", true},
-		{"unnamed write cannot replace human", OriginHuman, true, "", OriginHuman, false},
-		{"human replaces derived", OriginDerived, true, OriginHuman, OriginHuman, false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got, msg := resolveOrigin(c.existing, c.hasExisting, c.incoming)
-			if c.wantErr {
-				assert.Equal(t, errDerivedReplacesHuman, msg)
-				return
-			}
-			assert.Empty(t, msg)
-			assert.Equal(t, c.want, got)
-		})
-	}
-}
 
 func TestUpsert_OriginFromContext(t *testing.T) {
 	s := newTestStore()
@@ -69,12 +39,10 @@ func TestUpsert_OriginFromContext(t *testing.T) {
 }
 
 func seedOrigin(s *MemoryStore, id, origin string, evidence []string, links []mcell.ThoughtLink) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.items[id] = &MemoryItem{
+	s.Restore(context.Background(), &MemoryItem{
 		ID: id, Kind: "stable_fact", Scope: "public", Title: id, Content: "content of " + id,
 		Status: "active", Origin: origin, EvidenceRefs: evidence, Links: links,
-	}
+	})
 }
 
 func TestRefute_RetiresCellAndCascadesToDerivedCitations(t *testing.T) {
@@ -101,11 +69,11 @@ func TestRefute_RetiresCellAndCascadesToDerivedCitations(t *testing.T) {
 		assert.Equal(t, "active", s.GetItem(id).Status, id)
 	}
 
-	rec := s.GetItem("root").Data[refutedDataKey]
+	rec := s.GetItem("root").Data[memstore.RefutedDataKey]
 	assert.Equal(t, "application/json", rec.Mime)
 	raw, err := base64.StdEncoding.DecodeString(rec.Bytes)
 	require.NoError(t, err)
-	var got refutedRecord
+	var got memstore.RefutedRecord
 	require.NoError(t, json.Unmarshal(raw, &got))
 	assert.Equal(t, "measured otherwise", got.Reason)
 	assert.Equal(t, []string{"event-9"}, got.Evidence)
@@ -249,17 +217,6 @@ func TestSearch_CollapsesNearDuplicatesAndPrefersActiveWatchItems(t *testing.T) 
 		require.NotEmpty(t, got)
 		assert.Equal(t, "w", got[0].ID)
 	})
-}
-
-func TestRecencyMultiplier(t *testing.T) {
-	now := time.Now()
-	assert.Equal(t, 1.0, recencyMultiplier(time.Time{}, now), "no timestamp is neutral")
-	assert.Equal(t, 1.0, recencyMultiplier(now.Add(time.Hour), now), "a future timestamp is neutral")
-	assert.InDelta(t, 1.0, recencyMultiplier(now, now), 1e-9)
-	week := recencyMultiplier(now.Add(-recencyHalfLife), now)
-	assert.InDelta(t, recencyFloor+(1-recencyFloor)/2, week, 1e-9, "one half-life sits midway")
-	assert.Greater(t, recencyMultiplier(now.Add(-time.Hour), now), recencyMultiplier(now.Add(-30*24*time.Hour), now))
-	assert.GreaterOrEqual(t, recencyMultiplier(now.Add(-3650*24*time.Hour), now), recencyFloor)
 }
 
 // mcpCallBearer is mcpCall with the credential named by the caller.

@@ -13,8 +13,9 @@ import (
 	"github.com/rs/zerolog"
 
 	mcell "github.com/triageagent-dev/x-ray/v2/api/v1"
-	"github.com/triageagent-dev/x-ray/v2/internal/vectorstore"
 	ixray "github.com/triageagent-dev/x-ray/v2/internal/xray"
+	"github.com/triageagent-dev/x-ray/v2/pkg/memstore"
+	"github.com/triageagent-dev/x-ray/v2/pkg/memstore/index"
 	"github.com/triageagent-dev/x-ray/v2/pkg/xray"
 )
 
@@ -89,7 +90,7 @@ func New(ctx context.Context, opts ...Option) (*Store, error) {
 		if cfg.dims <= 0 {
 			cfg.dims = 256
 		}
-		emb, err := vectorstore.NewEmbedder(ctx, cfg.endpoint, cfg.model, "", "", cfg.dims, cfg.maxInputChars, zerolog.Nop())
+		emb, err := index.NewEmbedder(ctx, cfg.endpoint, cfg.model, "", "", cfg.dims, cfg.maxInputChars, zerolog.Nop())
 		if err != nil {
 			return nil, fmt.Errorf("memory: embedder: %w", err)
 		}
@@ -298,7 +299,7 @@ func checkWrite(tool string, w xray.Write) error {
 	if w.Scope == xray.ScopePrivate && w.Subject == "" {
 		return refuse(tool, "subject is required when scope=private")
 	}
-	if w.EventDate != "" && !ixray.ValidEventDate(w.EventDate) {
+	if w.EventDate != "" && !memstore.ValidEventDate(w.EventDate) {
 		return refuse(tool, "event_date must be RFC3339 (e.g. 2026-06-15T09:00:00Z) or YYYY-MM-DD")
 	}
 	return nil

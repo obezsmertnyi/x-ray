@@ -35,10 +35,12 @@ type DataEntry struct {
 type MemoryCellSpec struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
-	// Scope is the privacy axis (ADR-037): "public" (shared — visible on the
-	// graph and in user-facing search; the default) or "private" (isolated to
-	// Subject; hidden from everyone else). system_configuration cells are always
-	// treated as private regardless of scope.
+	// Scope is the privacy axis: "public" (shared — visible on the graph and in
+	// user-facing search; the default) or "private" (hidden from everyone but
+	// its owner). The owner of a private cell is the person named by its
+	// "user:<hash>" tag; Subject is the identity of the instance that holds the
+	// cell, never its owner. system_configuration cells are always treated as
+	// private regardless of scope.
 	Scope        string        `json:"scope,omitempty"`
 	Subject      string        `json:"subject,omitempty"`
 	Title        string        `json:"title"`

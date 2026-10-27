@@ -14,17 +14,17 @@ import (
 )
 
 func TestValidateWrite(t *testing.T) {
-	assert.Empty(t, validateWrite("note", ""))
-	assert.Empty(t, validateWrite("stable_fact", "high"))
-	assert.Contains(t, validateWrite("stable_fact", "medium"), "confidence=high")
-	assert.Contains(t, validateWrite("agent_note", ""), "not one of")
-	assert.Contains(t, validateWrite("episodic", ""), "not one of", "server-written kinds are not writable through upsert")
-	assert.Contains(t, validateWrite("", ""), "required")
+	assert.Empty(t, ValidateWrite("note", ""))
+	assert.Empty(t, ValidateWrite("stable_fact", "high"))
+	assert.Contains(t, ValidateWrite("stable_fact", "medium"), "confidence=high")
+	assert.Contains(t, ValidateWrite("agent_note", ""), "not one of")
+	assert.Contains(t, ValidateWrite("episodic", ""), "not one of", "server-written kinds are not writable through upsert")
+	assert.Contains(t, ValidateWrite("", ""), "required")
 
-	assert.Empty(t, validateSearchKind(""))
-	assert.Empty(t, validateSearchKind("episodic"))
-	assert.Contains(t, validateSearchKind("system_configuration"), "not a searchable kind")
-	assert.Contains(t, validateSearchKind("fact"), "not a searchable kind")
+	assert.Empty(t, ValidateSearchKind(""))
+	assert.Empty(t, ValidateSearchKind("episodic"))
+	assert.Contains(t, ValidateSearchKind("system_configuration"), "not a searchable kind")
+	assert.Contains(t, ValidateSearchKind("fact"), "not a searchable kind")
 }
 
 func TestExpire(t *testing.T) {

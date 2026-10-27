@@ -21,7 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	mcell "github.com/triageagent-dev/x-ray/v2/api/v1"
-	"github.com/triageagent-dev/x-ray/v2/internal/vectorstore"
+	"github.com/triageagent-dev/x-ray/v2/pkg/memstore/cellsync"
+	"github.com/triageagent-dev/x-ray/v2/pkg/memstore/index"
 )
 
 // MapRegistrar registers/de-registers a mental-map graph carried in a MemoryCell
@@ -38,8 +39,8 @@ type MapRegistrar interface {
 // image-volume would ship — just delivered inside the cell instead.
 const graphDataKey = "graph"
 
-// CellSyncer seeds the MemoryStore HNSW index from MemoryCell CRs
-// and watches for changes.
+// CellSyncer loads MemoryCell CRs into the MemoryStore and its vector index at
+// startup and follows them as they change.
 type CellSyncer struct {
 	client.Client
 	memory *MemoryStore
@@ -83,8 +84,42 @@ func (s *CellSyncer) SetMapRegistrar(r MapRegistrar) { s.mapReg = r }
 // pull graphRef artifacts.
 func (s *CellSyncer) SetRegistryPullSecret(name string) { s.pullSecret = name }
 
-// SeedAll lists all MemoryCell CRs in the namespace and loads them
-// into the HNSW index. Called once at startup before serving requests.
+// syncOptions are the decisions the server makes about a cell: it owns every
+// cell in its namespace, treats the kinds that configure it or hold durable
+// structure as config (never embedded, never deleted at a deadline), keeps a
+// retired cell as the audit trail of what was refuted or replaced, and embeds
+// everything else.
+func syncOptions() cellsync.Options {
+	return cellsync.Options{ConfigKind: isConfigCell, KeepRetired: true}
+}
+
+// retentionExemptKinds are cells the deadline never deletes, regardless of
+// StaleAfter: system_configuration and system_identity are structural
+// (deployment and instance identity, not decaying knowledge), policy carries
+// operator-tuned behavioural parameters, and episodic is owned by the separate
+// episodic reaper, which keys off CreatedAt rather than StaleAfter.
+var retentionExemptKinds = map[string]struct{}{
+	"system_configuration": {},
+	"system_identity":      {},
+	"policy":               {},
+	"episodic":             {},
+	"mental_map":           {},
+}
+
+// isConfigCell reports a cell the deadline and the vector index leave alone: an
+// exempt kind, or a cell carrying a map (a mental-map graph, inline or by
+// reference).
+func isConfigCell(cell *mcell.MemoryCell) bool {
+	if _, ok := retentionExemptKinds[cell.Spec.Kind]; ok {
+		return true
+	}
+	_, inline := cell.Spec.Data[graphDataKey]
+	_, byRef := cell.Spec.Data[graphRefDataKey]
+	return inline || byRef
+}
+
+// SeedAll lists all MemoryCell CRs in the namespace and loads them into the
+// store and its vector index. Called once at startup before serving requests.
 func (s *CellSyncer) SeedAll(ctx context.Context, namespace string) error {
 	list := &mcell.MemoryCellList{}
 	if err := s.List(ctx, list, client.InNamespace(namespace)); err != nil {
@@ -94,10 +129,6 @@ func (s *CellSyncer) SeedAll(ctx context.Context, namespace string) error {
 	seeded, embedded, skipped := 0, 0, 0
 	for i := range list.Items {
 		cell := &list.Items[i]
-		if cell.Spec.Status == "stale" || cell.Spec.Status == "superseded" {
-			skipped++
-			continue
-		}
 		hadEmbedding := cell.Spec.Embedding != ""
 		if err := s.syncCell(ctx, cell); err != nil {
 			s.logger.Warn().Err(err).Str("cell", cell.Name).Msg("seed failed")
@@ -105,10 +136,12 @@ func (s *CellSyncer) SeedAll(ctx context.Context, namespace string) error {
 			continue
 		}
 		switch {
+		case cell.Spec.Status == "stale" || cell.Spec.Status == "superseded":
+			skipped++ // retired: held, out of every index
 		case cell.Spec.Kind == "system_configuration":
 			// operational cell — not indexed, not counted
 		case isPrivateScope(cell.Spec.Scope):
-			seeded++ // private cell loaded into in-memory store, no HNSW
+			seeded++ // private cell loaded into the store, no vector index
 		case hadEmbedding:
 			seeded++
 		default:
@@ -134,7 +167,7 @@ func (s *CellSyncer) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			delete(s.ids, req.Name)
 			s.idsMu.Unlock()
 			if known {
-				s.memory.forget(id, true)
+				s.memory.ForgetCell(id)
 			}
 			// De-register any in-memory map this cell carried. The cell's
 			// spec is gone, so recover the label from its resource name — the same
@@ -158,18 +191,17 @@ func (s *CellSyncer) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if cell.Spec.Status == "stale" || cell.Spec.Status == "superseded" {
 		// Tombstoned: drop the map and the indexes but keep the cell.
 		s.removeMapCell(cell)
-		s.memory.applyRemote(cellToItem(cell))
-		return ctrl.Result{}, nil
 	}
 
-	if err := s.syncCell(ctx, cell); err != nil {
+	d, err := s.syncCellDecision(ctx, cell)
+	if err != nil {
 		s.logger.Warn().Err(err).Str("cell", cell.Name).Msg("reconcile failed; will retry")
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	if s.mapPending(cell) {
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: d.Requeue}, nil
 }
 
 // SyncCell reconciles a single MemoryCell into the in-memory store.
@@ -178,6 +210,13 @@ func (s *CellSyncer) SyncCell(ctx context.Context, cell *mcell.MemoryCell) error
 }
 
 func (s *CellSyncer) syncCell(ctx context.Context, cell *mcell.MemoryCell) error {
+	_, err := s.syncCellDecision(ctx, cell)
+	return err
+}
+
+// syncCellDecision brings one cell into the store and the vector index as
+// cellsync.Decide says, and returns what it decided.
+func (s *CellSyncer) syncCellDecision(ctx context.Context, cell *mcell.MemoryCell) (cellsync.Decision, error) {
 	// Graph-carrying cell (Data["graph"]): register its gob as an in-memory map so
 	// search_graph et al. can query it — no OCI image-volume, no restart. The cell's
 	// text still indexes normally below (it's the map's human-facing description);
@@ -192,10 +231,15 @@ func (s *CellSyncer) syncCell(ctx context.Context, cell *mcell.MemoryCell) error
 		}
 	}
 
-	// Shared cells: follow what the cluster holds (keyword index, change events).
-	s.memory.applyRemote(cellToItem(cell))
+	// A private cell written with its owner in Subject moves to the user: tag, with
+	// Subject as this instance's identity. Done once, written back, idempotent.
+	if cellsync.MigratePrivateOwner(cell, s.memory.instance) {
+		if err := s.Update(ctx, cell); err != nil && !apierrors.IsConflict(err) {
+			s.logger.Warn().Err(err).Str("cell", cell.Name).Msg("private owner migration failed")
+		}
+	}
 
-	// system_configuration is never indexed and not loaded into the in-memory store.
+	// system_configuration is never indexed and not loaded into the store.
 	if cell.Spec.Kind == "system_configuration" {
 		if cell.Spec.Embedding != "" {
 			cell.Spec.Embedding = ""
@@ -203,76 +247,71 @@ func (s *CellSyncer) syncCell(ctx context.Context, cell *mcell.MemoryCell) error
 				s.logger.Warn().Err(err).Str("cell", cell.Name).Msg("clear stale embedding failed")
 			}
 		}
-		return nil
+		return cellsync.Decision{}, nil
 	}
 
-	// Private cells (scope=private, e.g. personal notes): load into the in-memory
-	// store (no HNSW indexing, never on the shared graph) even without a k8s cache
-	// reader. (ADR-037; formerly keyed on kind==agent_note.)
-	if isPrivateScope(cell.Spec.Scope) {
-		if cell.Spec.Embedding != "" {
+	d := cellsync.Decide(cell, time.Now(), syncOptions())
+	if d.Delete {
+		// Past its deadline: the cell, the item and its vector all go.
+		s.memory.ForgetCell(cell.Spec.ID)
+		if err := s.Delete(ctx, cell); err != nil && !apierrors.IsNotFound(err) {
+			return d, fmt.Errorf("delete expired cell: %w", err)
+		}
+		return d, nil
+	}
+
+	// Follow what the cluster holds: the store (keyword index, change events).
+	s.memory.MirrorCell(cell)
+
+	if d.ClearEmbedding {
+		// A private cell is never embedded into the shared vector index. One that
+		// turns private after indexing leaves the index, and its stored embedding
+		// is cleared so a flip back re-embeds fresh.
+		s.memory.dropVector(cell.Spec.ID)
+		if cell.Spec.Embedding != "" || cell.Status.Indexed {
 			cell.Spec.Embedding = ""
 			if err := s.Update(ctx, cell); err != nil && !apierrors.IsConflict(err) {
 				s.logger.Warn().Err(err).Str("cell", cell.Name).Msg("clear stale embedding failed")
 			}
+			cell.Status.Indexed = false
+			if err := s.Status().Update(ctx, cell); err != nil && !apierrors.IsConflict(err) {
+				s.logger.Warn().Err(err).Str("cell", cell.Name).Msg("clear indexed status failed")
+			}
 		}
-		// Always seed into s.items — Upsert always writes/reads s.items, so private
-		// cells must be present there regardless of whether a cache reader exists.
-		// Skip the write when the CR's content already matches what's in memory:
-		// every reconcile of an unchanged cell (the embedding-clear Update just
-		// above, informer resyncs, startup replay) would otherwise unconditionally
-		// clobber whatever is currently held with a fresh read of the CR — silent
-		// today (this branch never publishes an SSE event), but still a needless
-		// overwrite of possibly-fresher in-memory state. ADR-033 discipline, ported
-		// from the sibling triage repo's MirrorMemoryItem.
-		it := cellToItem(cell)
-		s.memory.mu.Lock()
-		if existing, ok := s.memory.items[it.ID]; !ok || !itemsSemanticallyEqual(existing, it) {
-			s.memory.items[it.ID] = it
-		}
-		s.memory.mu.Unlock()
-		return nil
+		return d, nil
+	}
+	if !d.Index {
+		return d, nil
 	}
 
-	// Keyword-only mode: no HNSW index to maintain; cache is the source of truth.
+	// Keyword-only mode: no vector index to maintain.
 	if s.memory.cells == nil {
-		return s.markIndexed(ctx, cell)
+		return d, s.markIndexed(ctx, cell)
 	}
 
-	doc := cellSpecToDoc(cell.Spec)
-
-	if cell.Spec.Embedding != "" {
-		vec, err := vectorstore.DecodeEmbedding(cell.Spec.Embedding)
-		if err != nil {
-			s.logger.Warn().Err(err).Str("cell", cell.Name).Msg("bad embedding; will re-embed")
-		} else if s.memory.cells.SeedFromEmbedding(doc, vec) {
-			return s.markIndexed(ctx, cell)
-		} else {
-			s.logger.Warn().Str("cell", cell.Name).Int("dims", len(vec)).Msg("stored embedding has the wrong dimension; will re-embed")
-		}
-	}
-
-	// No embedding — call embedder and patch vector back to CR.
-	vec, err := s.memory.cells.Index(ctx, doc)
+	embedded, err := s.memory.cells.SeedOrEmbed(ctx, cell, entryOfCell(cell))
 	if err != nil {
-		return fmt.Errorf("embed cell %s: %w", cell.Name, err)
+		return d, fmt.Errorf("embed cell %s: %w", cell.Name, err)
+	}
+	if embedded == "" {
+		return d, s.markIndexed(ctx, cell)
 	}
 
-	cell.Spec.Embedding = vectorstore.EncodeEmbedding(vec)
+	cell.Spec.Embedding = embedded
 	cell.Status.Indexed = true
 	now := metav1.Now()
 	cell.Status.LastIndexedAt = &now
 
 	if err := s.Update(ctx, cell); err != nil {
 		if apierrors.IsConflict(err) {
-			return nil // will reconcile again on next watch event
+			return d, nil // will reconcile again on next watch event
 		}
-		return fmt.Errorf("patch cell embedding: %w", err)
+		return d, fmt.Errorf("patch cell embedding: %w", err)
 	}
 	if err := s.Status().Update(ctx, cell); err != nil && !apierrors.IsConflict(err) {
 		s.logger.Warn().Err(err).Str("cell", cell.Name).Msg("status update failed")
 	}
-	return nil
+	return d, nil
 }
 
 // mapLabelFromResourceName recovers the map label from a cell's k8s resource name
@@ -444,33 +483,16 @@ func (s *CellSyncer) Persist(ctx context.Context, it *MemoryItem, namespace stri
 	}
 
 	if apierrors.IsNotFound(err) {
+		spec := specOf(it, s.memory.instance)
+		spec.CreatedAt = now
+		spec.UpdatedAt = now
 		cell := &mcell.MemoryCell{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
 				Namespace: namespace,
 				Labels:    map[string]string{"xray.triageagent.dev/managed": "true", "xray.triageagent.dev/kind": it.Kind},
 			},
-			Spec: mcell.MemoryCellSpec{
-				ID:         it.ID,
-				Kind:       it.Kind,
-				Scope:      it.Scope,
-				Subject:    it.Subject,
-				Title:      it.Title,
-				Content:    it.Content,
-				Confidence: it.Confidence,
-				EventDate:  it.EventDate,
-				Tags:       it.Tags,
-				Data:       it.Data,
-				Status:     cellStatus(it.Status),
-				StaleAfter: timePtrToMetaTime(it.StaleAfter),
-				CreatedAt:  now,
-				UpdatedAt:  now,
-
-				Origin:       it.Origin,
-				EvidenceRefs: it.EvidenceRefs,
-				Supersedes:   it.Supersedes,
-				Links:        it.Links,
-			},
+			Spec: spec,
 		}
 		if err := s.Create(ctx, cell); err != nil {
 			return err
@@ -500,31 +522,17 @@ func (s *CellSyncer) Persist(ctx context.Context, it *MemoryItem, namespace stri
 	// the in-memory item actually carries, so those are copied forward from the
 	// existing CR instead of zeroing them. Origin, EvidenceRefs, Supersedes and
 	// Links are carried by the item when set and copied forward when not.
-	desired := mcell.MemoryCellSpec{
-		ID:         it.ID,
-		Kind:       it.Kind,
-		Scope:      it.Scope,
-		Subject:    it.Subject,
-		Title:      it.Title,
-		Content:    it.Content,
-		Confidence: it.Confidence,
-		EventDate:  it.EventDate,
-		Tags:       it.Tags,
-		Data:       it.Data,
-		Status:     cellStatus(it.Status),
-		StaleAfter: timePtrToMetaTime(it.StaleAfter),
-
-		// Origin, EvidenceRefs, Supersedes and Links are the item's when it
-		// carries them (a write, a refute, a consolidation) and the stored
-		// CR's otherwise.
-		Origin:       firstNonEmpty(it.Origin, existing.Spec.Origin),
-		EvidenceRefs: firstNonNil(it.EvidenceRefs, existing.Spec.EvidenceRefs),
-		Supersedes:   firstNonNil(it.Supersedes, existing.Spec.Supersedes),
-		Links:        firstNonNilLinks(it.Links, existing.Spec.Links),
-		VoiceConfig:  existing.Spec.VoiceConfig,
-		MCP:          existing.Spec.MCP,
-		UI:           existing.Spec.UI,
-	}
+	desired := specOf(it, s.memory.instance)
+	desired.CreatedAt, desired.UpdatedAt = metav1.Time{}, metav1.Time{}
+	// Origin, EvidenceRefs, Supersedes and Links are the item's when it carries
+	// them (a write, a refute, a consolidation) and the stored CR's otherwise.
+	desired.Origin = firstNonEmpty(it.Origin, existing.Spec.Origin)
+	desired.EvidenceRefs = firstNonNil(it.EvidenceRefs, existing.Spec.EvidenceRefs)
+	desired.Supersedes = firstNonNil(it.Supersedes, existing.Spec.Supersedes)
+	desired.Links = firstNonNilLinks(it.Links, existing.Spec.Links)
+	desired.VoiceConfig = existing.Spec.VoiceConfig
+	desired.MCP = existing.Spec.MCP
+	desired.UI = existing.Spec.UI
 	if specContentEqual(desired, existing.Spec) {
 		return nil
 	}
@@ -576,15 +584,6 @@ func specContentEqual(a, b mcell.MemoryCellSpec) bool {
 		reflect.DeepEqual(a.VoiceConfig, b.VoiceConfig) &&
 		reflect.DeepEqual(a.MCP, b.MCP) &&
 		reflect.DeepEqual(a.UI, b.UI)
-}
-
-// cellStatus is the CR status of an in-process item: stale and superseded cells
-// are kept, everything else (active, or indexed in this pod) is stored active.
-func cellStatus(status string) string {
-	if status == "stale" || status == "superseded" {
-		return status
-	}
-	return "active"
 }
 
 func firstNonEmpty(a, b string) string {
@@ -677,17 +676,49 @@ func (s *CellSyncer) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(s)
 }
 
-func cellSpecToDoc(spec mcell.MemoryCellSpec) vectorstore.MemoryCellIndexEntry {
-	return vectorstore.MemoryCellIndexEntry{
-		ID:         spec.ID,
-		Kind:       spec.Kind,
-		Scope:      spec.Scope,
-		Subject:    spec.Subject,
-		Title:      spec.Title,
-		Content:    spec.Content,
-		Confidence: spec.Confidence,
-		Status:     spec.Status,
-		Tags:       spec.Tags,
-		EventDate:  spec.EventDate,
+func entryOfCell(cell *mcell.MemoryCell) index.IndexEntry {
+	return entryOf(itemOfCell(cell))
+}
+
+// StartRetentionSweep is the backstop of deletion at the deadline: every `every`
+// it deletes any cell past its StaleAfter that the deadline may delete, across
+// all non-exempt kinds, in case a reconcile that should have fired at the
+// deadline did not. A no-op when every <= 0. ctx bounds it.
+func (s *CellSyncer) StartRetentionSweep(ctx context.Context, namespace string, every time.Duration) {
+	if every <= 0 {
+		return
+	}
+	go func() {
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				s.sweepExpired(ctx, namespace)
+			}
+		}
+	}()
+}
+
+// sweepExpired deletes every cell whose deadline has passed and which the
+// deadline may delete (not exempt, see isConfigCell).
+func (s *CellSyncer) sweepExpired(ctx context.Context, namespace string) {
+	list := &mcell.MemoryCellList{}
+	if err := s.List(ctx, list, client.InNamespace(namespace)); err != nil {
+		s.logger.Warn().Err(err).Msg("retention sweep: list failed")
+		return
+	}
+	now := time.Now()
+	for i := range list.Items {
+		cell := &list.Items[i]
+		if cell.Spec.StaleAfter == nil || !now.After(cell.Spec.StaleAfter.Time) || !cellsync.Decide(cell, now, syncOptions()).Delete {
+			continue
+		}
+		s.memory.ForgetCell(cell.Spec.ID)
+		if err := s.Delete(ctx, cell); err != nil && !apierrors.IsNotFound(err) {
+			s.logger.Warn().Err(err).Str("cell", cell.Name).Msg("retention sweep: delete failed")
+		}
 	}
 }

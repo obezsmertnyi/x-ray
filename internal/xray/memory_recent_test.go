@@ -21,9 +21,7 @@ func TestListRecent_NewestFirst(t *testing.T) {
 	mk := func(title string, ageMin int) string {
 		res, errMsg := s.Upsert(context.Background(), "", "episodic", "private", title, "body of "+title, user, "medium", "", nil, nil)
 		require.Empty(t, errMsg)
-		s.mu.Lock()
-		s.items[res.ID].CreatedAt = time.Now().Add(-time.Duration(ageMin) * time.Minute)
-		s.mu.Unlock()
+		backdate(s, res.ID, time.Now().Add(-time.Duration(ageMin)*time.Minute))
 		return res.ID
 	}
 	oldID := mk("oldest", 30)
@@ -46,9 +44,7 @@ func TestListRecent_RespectsLimitAndKind(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		res, errMsg := s.Upsert(context.Background(), "", "episodic", "private", "ep", "body", user, "medium", "", nil, nil)
 		require.Empty(t, errMsg)
-		s.mu.Lock()
-		s.items[res.ID].CreatedAt = time.Now().Add(-time.Duration(i) * time.Minute)
-		s.mu.Unlock()
+		backdate(s, res.ID, time.Now().Add(-time.Duration(i)*time.Minute))
 	}
 	// A note (different kind) and a public episodic of another user must not leak in.
 	_, errMsg := s.Upsert(context.Background(), "", "note", "private", "a note", "body", user, "medium", "", nil, nil)
@@ -75,9 +71,7 @@ func mkEpisodic(t *testing.T, s *MemoryStore, user, title string, ageMin int) st
 	t.Helper()
 	res, errMsg := s.Upsert(context.Background(), "", "episodic", "private", title, "body", user, "medium", "", nil, nil)
 	require.Empty(t, errMsg)
-	s.mu.Lock()
-	s.items[res.ID].CreatedAt = time.Now().Add(-time.Duration(ageMin) * time.Minute)
-	s.mu.Unlock()
+	backdate(s, res.ID, time.Now().Add(-time.Duration(ageMin)*time.Minute))
 	return res.ID
 }
 
@@ -118,10 +112,8 @@ func TestReapExpiredEpisodic_DeletesExpired(t *testing.T) {
 
 	s.reapExpiredEpisodic(context.Background(), nil)
 
-	s.mu.RLock()
-	_, staleStillThere := s.items[staleID]
-	_, freshStillThere := s.items[freshID]
-	s.mu.RUnlock()
+	staleStillThere := s.GetItem(staleID) != nil
+	freshStillThere := s.GetItem(freshID) != nil
 	assert.False(t, staleStillThere, "reaper must delete the expired episodic memory")
 	assert.True(t, freshStillThere, "reaper must keep the fresh episodic memory")
 }

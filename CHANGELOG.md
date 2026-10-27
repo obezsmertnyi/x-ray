@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-10-27
+
+### Added
+- **The memory engine as a Go library.** `pkg/memstore` (items, store, hybrid search), `pkg/memstore/index` (HNSW index and embedder), `pkg/memstore/hub` (live events, with a transport between replicas), `pkg/memstore/cellsync` (the decision for a cell, and the private-owner migration) and `pkg/memstore/memtest`. The server and `pkg/memory` run on the same engine, with their options kept (`WithEmbeddings`, `WithWriteDedup`, `WithRecallShaping`, `WithOrigin`). See ADR-062.
+- Engine switches, each off or equal to the engine's behaviour by default: per-kind default deadlines and renewal on merge, `Vocabulary.FactConfidenceOptional`, `Config.SkipIDText`, `cellsync.Options.KeepRetired`, source collapse and link expansion on the searcher.
+
+### Changed
+- **A cell past its retention deadline is deleted when the deadline falls** (`cellsync.Decide`), not at the next periodic sweep. `--retention-sweep-interval` stays as a backstop. Additive: nothing is deleted that the sweep would have kept.
+- **The owner of a private item is a `user:<hash>` tag**, and the cell's `subject` names the instance that holds it. A private cell written by an earlier release (the owner in `subject`) is converted on first sync, idempotently, and reads the same meanwhile. The MCP and REST `subject` argument means what it did. The library reads a person's private items with `Store.KeywordSearchForUser` and `VisibleToUser`.
+- **The server keeps its store resident**, fed by the cell watch, and no longer reads the cluster for keyword search. A mirrored item carries no embedding.
+- A retired cell (refuted, superseded, stale) reaches connected clients as a delete event, whether it was retired here or on another replica.
+
+### Fixed
+- **Search ranking** (`docs/analysis/memory-search-review.md`). Punctuation is stripped from query and document tokens, so `bigquery.` matches `bigquery`. Conversational filler (`what`, `is`, `with`) no longer counts as evidence. A lexical answer is confident only when the matched words carry 75% of the query's weight, which means the semantic search runs when it should. The semantic score gap is applied after visibility, not inside the vector store. Keyword, semantic and exact-title rankings are fused with a deterministic tie-break. Provenance (`human`, `verified`), confidence and, for events, the event date weigh in the rerank. A fact that is restated keeps the higher-confidence, higher-origin, newer item.
+- **Equal traversal scores are ordered by id**, so a graph walk returns the same result twice.
+- A two-token query no longer drops the item that matches only one of the tokens when that token carries enough of the query's weight (the reviewer's coverage exemption); the item with both tokens still ranks first.
+
 ## [2.2.1] - 2026-10-25
 
 First public release. It replaces v2.2.0, which was withdrawn.
