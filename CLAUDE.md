@@ -25,9 +25,9 @@ xray/
 │   │   ├── server.go        # HTTP API routes (Huma framework), session mgmt, SSE
 │   │   ├── voice.go         # Gemini Live voice session management
 │   │   ├── voice_tools.go   # Memory tools wired to Gemini Live
-│   │   ├── hub.go           # SSE hub broadcasting memory-hit and memory-change events
-│   │   ├── memory.go        # In-memory store with HNSW semantic search
-│   │   ├── cellsync.go      # Seeds HNSW from MemoryCell CRs
+│   │   ├── hub.go           # SSE framing over pkg/memstore/hub (memory-hit and memory-change events)
+│   │   ├── memory.go        # Server adapter over pkg/memstore (Store + Searcher); sessions, counters, stats flusher
+│   │   ├── cellsync.go      # CellSyncer on pkg/memstore/cellsync: decisions, mirror into the Store, private-owner migration
 │   │   ├── auth.go          # Session store & OAuth session management
 │   │   ├── mcpserver.go     # Optional MCP server for external tool access
 │   ├── codegraph/           # Code graph (`xray graph`): parser, engine, graph, index, mcpserver, httpguard, ...
@@ -35,7 +35,10 @@ xray/
 │   ├── config/              # Configuration & Kubernetes Secret watchers
 │   └── version/             # Version injection via ldflags
 ├── pkg/memory/              # Public library: the memory store, in the caller's process
+├── pkg/memstore/            # Public: the memory engine — Item, Store, Searcher, lexical engine, dedup, Lexicon, Vocabulary (ADR-062)
 ├── pkg/memstore/index/      # Public: HNSW cell index and embeddings (Vertex AI or gateway)
+├── pkg/memstore/hub/        # Public: memory event hub with a Transport seam (hosts add their own SSE/websocket framing)
+├── pkg/memstore/cellsync/   # Public: MemoryCell reconcile decisions, ListByKind, private-owner migration
 ├── pkg/codegraph/           # Public library: the code graph, in the caller's process
 ├── pkg/xray/                # Public Go SDK: a typed MCP client, and the Memory and CodeGraph interfaces both implement
 ├── ui/                      # Web UI: Next.js static export, embedded into the binary
@@ -114,10 +117,10 @@ Public endpoints (no auth required): `/v1/auth/*`, `/v1/version`, `/healthz`, `/
 | **Facts** | `stable_fact` | Durable facts |
 | **Identity** | `system_identity` | Services, repos, people |
 | **Events** | `event` | Time-bound events; carries `event_date` (RFC3339) |
-| **Notes** | `note` | Free notes; `scope=private` with `subject` as the owner |
+| **Notes** | `note` | Free notes; `scope=private` is owned by the `user:<hash>` tag, `subject` is the instance or topic |
 
 - Also valid: `recent_change`, `watch_item`, `hypothesis`, `unknown`. Server-written: `episodic` (voice session memory), `system_configuration`, `mental_map`.
-- Privacy is `scope` (`public` or `private`), not a kind. `agent_note` no longer exists (ADR-037). Voice writes are always `note`/`private` with `subject` = hash of the user.
+- Privacy is `scope` (`public` or `private`), not a kind. `agent_note` no longer exists (ADR-037). Voice writes are always `note`/`private`, owned by the `user:<hash>` tag of the signed-in person; `subject` is the instance identity.
 - A deployment overrides the categories with `ui.categories` in the `system_configuration` cell; a category can select by `tag` (for example `project`, `contributor`).
 - `system_configuration` is reserved — filtered from search unless explicitly requested; holds voice and UI settings (subject=xray)
 - Use `scripts/upsert_memory.py` when upserting with an image (MCP direct call drops image data on update)
@@ -246,7 +249,7 @@ make version           # Show computed version string
 X-Ray can sync memory from `MemoryCell` custom resources (`xray.triageagent.dev/v1`, short: `mcell`, defined in `api/v1/`):
 - Each cell is an independent k8s object with embedded vector embedding
 - Fields: kind, scope, subject, title, content, confidence, status, tags, links
-- Scope values (ADR-037): `public` (shared — visible on the graph and in user-facing search; the default for normal memory) or `private` (isolated to its `subject` — a person's userHash, or a reserved owner like `agent`/`system`; hidden from everyone else). `system_configuration` cells are always treated as private regardless of scope.
+- Scope values (ADR-037): `public` (shared — visible on the graph and in user-facing search; the default for normal memory) or `private` (owned by the `user:<hash>` tag — a person's userHash, or a reserved owner like `agent`/`system`; hidden from everyone else; `subject` is the instance or topic, not the owner. Cells in the old layout, where `subject` held the owner, are migrated once by the CellSyncer). `system_configuration` cells are always treated as private regardless of scope.
 - Status tracks: `indexed`, `lastIndexedAt`, `conditions`
 - CellSyncer loads cells at startup and watches for changes
 - Embeddings are cached in CR storage — startup is fast on second run (no re-embed)
