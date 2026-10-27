@@ -359,17 +359,36 @@ func (s *MemoryStore) Search(ctx context.Context, query, kind, subject string, l
 	if hit := s.ownersExactIDMatch(query, kind, subject); hit != nil {
 		add(hit)
 	}
+	shared := make([]*MemoryItem, 0, len(results))
 	for _, r := range results {
 		v := viewOf(r.Item)
 		v.Via = r.Via
 		v.Collapsed = r.CollapsedCount
+		shared = append(shared, v)
+	}
+	var own []*MemoryItem
+	if subject != "" {
+		own = views(s.eng.KeywordSearchOwn(subject, query, kind, limit))
+	}
+	for _, v := range interleave(shared, own) {
 		add(v)
 	}
-	if subject != "" {
-		for _, it := range s.eng.KeywordSearchForUser(subject, query, kind, "", limit) {
-			if memstore.IsPrivateItem(it) {
-				add(viewOf(it))
-			}
+	return out
+}
+
+// interleave merges two ranked lists alternately, the first list's item ahead at
+// each rank. The lists are ranked by different means (the shared list by fused
+// lexical and semantic relevance, the person's private notes by lexical match
+// alone), so their scores cannot be compared; alternating keeps either from
+// crowding the other out of a limit.
+func interleave(first, second []*MemoryItem) []*MemoryItem {
+	out := make([]*MemoryItem, 0, len(first)+len(second))
+	for i := 0; i < len(first) || i < len(second); i++ {
+		if i < len(first) {
+			out = append(out, first[i])
+		}
+		if i < len(second) {
+			out = append(out, second[i])
 		}
 	}
 	return out
@@ -741,20 +760,15 @@ func (s *MemoryStore) Supersede(ctx context.Context, oldID, newID, kind, scope, 
 // id names no cell.
 func (s *MemoryStore) Refute(ctx context.Context, id, reason string, evidence []string) (changed []*MemoryItem, found bool) {
 	id = strings.TrimSpace(id)
-	before := map[string]memstore.Item{}
-	if it, ok := s.eng.Get(id); ok {
-		before[id] = it
-	}
-	for _, c := range s.eng.AllItems() {
-		before[c.ID] = c
-	}
 	refuted, cascaded := s.eng.Refute(id, reason, evidence, time.Now())
 	if !refuted {
 		return nil, false
 	}
 	for _, cid := range append([]string{id}, cascaded...) {
-		s.retired(before[cid])
+		// A retired item stays in the store with its scope and owner, which is
+		// all the delete event needs.
 		after, _ := s.eng.Get(cid)
+		s.retired(after)
 		changed = append(changed, viewOf(after))
 	}
 	return changed, true
@@ -906,6 +920,14 @@ func (s *MemoryStore) matching(kind, scope, subject string) []memstore.Item {
 				out = append(out, it)
 			}
 		}
+		// Shared and private items are two lists; one order puts the newest first
+		// so a limit does not cut off the private ones.
+		sort.SliceStable(out, func(i, j int) bool {
+			if !out[i].UpdatedAt.Equal(&out[j].UpdatedAt) {
+				return out[i].UpdatedAt.After(out[j].UpdatedAt.Time)
+			}
+			return out[i].ID < out[j].ID
+		})
 	}
 	return out
 }

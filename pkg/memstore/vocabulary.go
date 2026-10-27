@@ -34,6 +34,12 @@ type Vocabulary struct {
 	DataKinds func(kind string) bool
 }
 
+// isZero reports whether the vocabulary restricts nothing and rewrites nothing.
+func (v Vocabulary) isZero() bool {
+	return len(v.Rejected) == 0 && len(v.Writable) == 0 && len(v.Searchable) == 0 &&
+		len(v.NonSearchable) == 0 && v.Coerce == nil && !v.FactConfidenceOptional && v.DataKinds == nil
+}
+
 func inKinds(list []string, kind string) bool {
 	for _, k := range list {
 		if k == kind {

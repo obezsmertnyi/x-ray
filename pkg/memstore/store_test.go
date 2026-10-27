@@ -614,7 +614,7 @@ func TestStore_RestorePutMutateAndHits(t *testing.T) {
 	assert.Equal(t, []string{"note"}, gotKinds)
 }
 
-func TestStore_CloneIntoCopiesItemsOnly(t *testing.T) {
+func TestStore_CloneIntoCopiesItemsAndIndexesThem(t *testing.T) {
 	s := NewStore()
 	upsert(t, s, mk("a", "note", "t", "c"))
 	lock := &sync.RWMutex{}
@@ -625,7 +625,7 @@ func TestStore_CloneIntoCopiesItemsOnly(t *testing.T) {
 	got.Title = "changed"
 	orig, _ := s.Get("a")
 	assert.Equal(t, "t", orig.Title)
-	assert.False(t, c.Indexed("a"), "the indexes of the copy start empty")
+	assert.True(t, c.Indexed("a"), "the copy is searchable: its indexes are built from the copied items")
 }
 
 func TestStore_SubjectFilterMatchesServiceTags(t *testing.T) {

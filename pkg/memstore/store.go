@@ -541,14 +541,18 @@ func (s *Store) GetFold(id string, foldScan bool) (Item, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if item, ok := s.cells[id]; ok {
-		return item.Clone(), true
+		clone := item.Clone()
+		s.readOne(&clone)
+		return clone, true
 	}
 	if !foldScan {
 		return Item{}, false
 	}
 	for _, item := range s.cells {
 		if strings.EqualFold(item.ID, id) {
-			return item.Clone(), true
+			clone := item.Clone()
+			s.readOne(&clone)
+			return clone, true
 		}
 	}
 	return Item{}, false
@@ -1211,6 +1215,12 @@ func (s *Store) expireStaleItemsLocked() {
 			item.Status = "stale"
 			item.UpdatedAt = metav1.NewTime(now)
 			s.cells[id] = item
+			if s.kw != nil {
+				s.kw.Remove(id)
+			}
+			if s.vocab != nil {
+				s.vocab.Remove(id)
+			}
 			changed = true
 		}
 	}
@@ -1321,6 +1331,12 @@ func (s *Store) KeywordSearchPerKind(query, kind, subject string, limit, perKind
 // keywordSearch is KeywordSearchWithTrigramHit that also returns the query
 // tokens and the distinctiveness weights the ranking used.
 func (s *Store) keywordSearch(userHash, query, kind, subject string, limit, perKind int) (items []Item, trigramHit bool, toks []string, weights map[string]float64) {
+	return s.keywordSearchOpt(userHash, query, kind, subject, limit, perKind, false)
+}
+
+// keywordSearchOpt is keywordSearch that, with ownOnly, ranks only the private
+// items userHash owns.
+func (s *Store) keywordSearchOpt(userHash, query, kind, subject string, limit, perKind int, ownOnly bool) (items []Item, trigramHit bool, toks []string, weights map[string]float64) {
 	q := NormalizeQuery(query)
 	toks = KwTokens(q)
 
@@ -1336,6 +1352,9 @@ func (s *Store) keywordSearch(userHash, query, kind, subject string, limit, perK
 		// does.
 		private := IsPrivateItem(it)
 		if private && !VisibleToUser(it, userHash) {
+			continue
+		}
+		if ownOnly && !private {
 			continue
 		}
 		if kind != "" && it.Kind != kind {
@@ -1590,11 +1609,17 @@ func (s *Store) NotifyHit(itemIDs []string, query, kind string, kinds []string) 
 }
 
 // CloneInto copies the items into a new store guarded by mu, for a deep copy of
-// the host's state. The indexes of the copy start empty.
+// the host's state. A cfg with no vocabulary inherits the source's, and the
+// copy's lexical indexes are built from the copied items.
 func (s *Store) CloneInto(l Locker, cfg Config) *Store {
+	if cfg.Vocabulary.isZero() {
+		cfg.Vocabulary = s.cfg.Vocabulary
+	}
 	out := NewStore(WithLocker(l), WithConfig(cfg))
 	for k, v := range s.cells {
-		out.cells[k] = v.Clone()
+		c := v.Clone()
+		out.cells[k] = c
+		out.indexLocked(c)
 	}
 	return out
 }
@@ -1741,3 +1766,14 @@ func (s *Store) haystackOf(it Item) string {
 // buildCache (re)computes the item's lexical cache from the haystack the store
 // searches it by.
 func (s *Store) buildCache(item *Item) { buildLexicalCacheText(item, s.haystackOf(*item)) }
+
+// KeywordSearchOwn is KeywordSearch over the private items owned by userHash and
+// nothing else, so shared items that score higher cannot push them out of the
+// limit. With no userHash it returns nil.
+func (s *Store) KeywordSearchOwn(userHash, query, kind string, limit int) []Item {
+	if userHash == "" {
+		return nil
+	}
+	items, _, _, _ := s.keywordSearchOpt(userHash, query, kind, "", limit, 0, true)
+	return items
+}

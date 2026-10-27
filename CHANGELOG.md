@@ -18,6 +18,8 @@
 ### Fixed
 - **Search ranking** (`docs/analysis/memory-search-review.md`). Punctuation is stripped from query and document tokens, so `bigquery.` matches `bigquery`. Conversational filler (`what`, `is`, `with`) no longer counts as evidence. A lexical answer is confident only when the matched words carry 75% of the query's weight, which means the semantic search runs when it should. The semantic score gap is applied after visibility, not inside the vector store. Keyword, semantic and exact-title rankings are fused with a deterministic tie-break. Provenance (`human`, `verified`), confidence and, for events, the event date weigh in the rerank. A fact that is restated keeps the higher-confidence, higher-origin, newer item.
 - **Equal traversal scores are ordered by id**, so a graph walk returns the same result twice.
+- **A person's private notes are no longer crowded out of a search or a list.** `MemoryStore.Search` ranks them on their own (`Store.KeywordSearchOwn`) and alternates them with the shared hits, and a list with a subject and no scope orders shared and private items together, newest first.
+- **A lazily expired item leaves the lexical indexes**, as one retired by `Expire` does, so it no longer counts in word frequencies. `Store.CloneInto` builds the copy's indexes and inherits the vocabulary when given none, so a clone is searchable. `Store.GetFold` passes its result through the `Read` hook like `Get`. Refuting an item no longer copies the whole store.
 - A two-token query no longer drops the item that matches only one of the tokens when that token carries enough of the query's weight (the reviewer's coverage exemption); the item with both tokens still ranks first.
 
 ## [2.2.1] - 2026-10-25
