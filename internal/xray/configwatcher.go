@@ -101,14 +101,16 @@ type VoiceSessionConfig struct {
 // CategoryConfig is the parsed, typed form of mcell.CategoryConfig — a UI
 // display category served pre-auth via /v1/categories. JSON tags match the
 // frontend's RuntimeCategoryConfig shape (ui/lib/category-config.ts).
+// An unset tier or angle is left out: the frontend fills its defaults with ??,
+// which keeps a 0 and would draw every such region at the centre.
 type CategoryConfig struct {
 	ID    string  `json:"id"`
 	Label string  `json:"label"`
 	Color string  `json:"color"`
 	Kind  string  `json:"kind"`
 	Tag   string  `json:"tag,omitempty"`
-	Tier  float64 `json:"tier"`
-	Angle float64 `json:"angle"`
+	Tier  float64 `json:"tier,omitempty"`
+	Angle float64 `json:"angle,omitempty"`
 	Icon  string  `json:"icon,omitempty"`
 	Scope string  `json:"scope,omitempty"`
 }

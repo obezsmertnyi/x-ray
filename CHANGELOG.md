@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- `/v1/categories` leaves out a category's unset `tier` and `angle`. They were sent as 0, which the UI keeps, so a deployment that only relabels its categories had every graph region drawn at the centre.
+
 ## [2.3.0] - 2026-10-27
 
 ### Added

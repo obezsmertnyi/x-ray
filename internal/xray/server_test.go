@@ -190,6 +190,37 @@ func TestServer_Categories_FromConfig(t *testing.T) {
 	assert.Equal(t, "active_concern", cat["kind"])
 }
 
+// A category that sets only kind and label must not reach the UI with tier and
+// angle 0: the UI keeps a 0 and draws the region at the centre.
+func TestServer_Categories_UnsetTierAndAngleAreLeftOut(t *testing.T) {
+	mem := NewMemoryStore()
+	cw := NewConfigWatcher(mem)
+	s := NewServer(zerolog.Nop(), mem, nil, GitHubOAuthConfig{}, AzureOAuthConfig{}, "", 0, cw)
+	cw.update(&mcell.MemoryCell{
+		ObjectMeta: metav1.ObjectMeta{Name: SystemConfigCRName},
+		Spec: mcell.MemoryCellSpec{
+			Kind: "system_configuration",
+			UI: &mcell.UIConfig{
+				Categories: []mcell.CategoryConfig{
+					{Kind: "stable_fact", Label: "Policies"},
+					{Kind: "note", Label: "Guides", Tier: 0.4, Angle: 5.76},
+				},
+			},
+		},
+	})
+	w := do(t, s.Handler(), "GET", "/v1/categories", nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Categories []map[string]any `json:"categories"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Categories, 2)
+	assert.NotContains(t, resp.Categories[0], "tier")
+	assert.NotContains(t, resp.Categories[0], "angle")
+	assert.InDelta(t, 0.4, resp.Categories[1]["tier"], 1e-9)
+	assert.InDelta(t, 5.76, resp.Categories[1]["angle"], 1e-9)
+}
+
 func TestServer_AuthProviders(t *testing.T) {
 	s := newTestServer(t)
 	w := do(t, s.Handler(), "GET", "/v1/auth/providers", nil)
