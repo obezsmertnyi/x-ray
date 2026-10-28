@@ -65,5 +65,6 @@
 | [060](060-one-chart.md) | One Chart | Implemented | — | — |
 | [061](061-no-parser-image.md) | No Parser Image | Implemented | — | — |
 | [062](062-memory-engine-as-a-library.md) | The Memory Engine Is a Library | Implemented | — | `TestDecide_*`, `TestStore_*`, `TestStore_FileFromAnEarlierReleaseStillLoads` |
+| [063](063-google-sign-in.md) | Google Sign-In, Restricted to a Workspace Domain | Implemented | — | `TestGoogleIdentity_*`, `TestGoogleCallback_*`, `TestGoogleLogin_RedirectsWithStateAndDomainHint`, `TestServer_GoogleRoutesAndProvider`, `TestMCPSigningSeed_UnchangedWithoutGoogle` |
 
 **Statuses:** `Implemented` = code merged; `Accepted` = decided, pending implementation; `Reference` = living doc, not a decision.

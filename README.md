@@ -26,7 +26,7 @@ Both are searched by keyword and by meaning, and a web UI that is part of the bi
 - **Code graph.** Go and ten other languages, Markdown and YAML become one graph per repository, with resolved call and import edges. It serves `search_graph`, `get_graph_node`, `get_graph_impact` and `get_graph_risk`, and snapshots can be age-encrypted. See [docs/graph.md](docs/graph.md).
 - **Web UI.** Embedded in the binary and served at `/`: the memory graph, search, per-kind lists, voice, and a live view of recalls. It runs the same locally and in a cluster.
 - **Interfaces.** MCP, a REST API, a server-sent event stream, a Gemini Live voice WebSocket, and the Go packages below.
-- **Access control.** GitHub or Microsoft Entra sign-in, an optional GitHub org and team restriction, and OAuth 2.1 for MCP clients with read and write scopes.
+- **Access control.** GitHub, Microsoft Entra or Google sign-in, an optional GitHub org and team restriction, and OAuth 2.1 for MCP clients with read and write scopes.
 
 ## How a recall shows up
 
@@ -97,7 +97,7 @@ helm show values oci://ghcr.io/triageagent-dev/charts/xray --version <version> >
 
 Edit `values.yaml`:
 
-- set `github.secretName: github-oauth` (or `azure.secretName` for Microsoft Entra);
+- set `github.secretName: github-oauth` (or `azure.secretName` for Microsoft Entra, `google.secretName` for Google);
 - in `args`, uncomment `--public-url=https://xray.example.com` and `--github-org=<your org>`, with your own address and organisation (`--github-team` narrows it to a team);
 - set `ingress.enabled: true` with a `hostname`, or use `httpRoute` for a Gateway API route.
 

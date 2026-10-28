@@ -34,7 +34,7 @@ var allMCPScopes = []string{scopeRead, scopeWrite}
 
 // mcpAuthorizer is a minimal OAuth 2.1 Authorization Server co-located with the
 // MCP resource server (the spec permits this). It brokers the existing
-// GitHub/Entra browser login into short-lived, audience-bound JWT access tokens
+// GitHub/Entra/Google browser login into short-lived, audience-bound JWT access tokens
 // and supports RFC 7591 dynamic client registration.
 //
 // Current limitations: the RS256 signing key is generated per process (tokens do
@@ -499,7 +499,7 @@ func registerError(w http.ResponseWriter, code, desc string) {
 
 // handleAuthorize implements GET /authorize. In dev mode it auto-issues a code
 // for a synthetic user so the flow is testable without a real IdP. In production
-// this is where the existing GitHub/Entra session must be required (Phase 2).
+// this is where the existing GitHub/Entra/Google session must be required (Phase 2).
 func (a *mcpAuthorizer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	if a.throttle(w, r) {
 		return
@@ -538,7 +538,7 @@ func (a *mcpAuthorizer) handleAuthorize(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Resolve the user from the existing X-Ray session (pre-login model): the user
-	// must already be logged into the web app via GitHub/Entra in this browser.
+	// must already be logged into the web app via GitHub/Entra/Google in this browser.
 	// --dev uses a synthetic user so the flow is testable without a real IdP.
 	var username, sub string
 	if a.dev {
@@ -550,7 +550,7 @@ func (a *mcpAuthorizer) handleAuthorize(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if sub == "" {
-		// Not logged in — send the browser to the UI login page. The GitHub/Entra
+		// Not logged in — send the browser to the UI login page. The GitHub/Entra/Google
 		// callback redirects to "/", not back here, so the user re-triggers MCP auth
 		// after logging in. We deliberately do NOT pass a next= return target: it
 		// would be an attacker-controlled redirect param on a public endpoint, and

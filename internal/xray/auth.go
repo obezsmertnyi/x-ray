@@ -130,7 +130,7 @@ type sessionStore struct {
 
 type sessionEntry struct {
 	username  string // display name / login (human-readable, not unique across providers)
-	userID    string // provider-scoped unique ID: "github:<numeric>" or "azure:<oid>"
+	userID    string // provider-scoped unique ID: "github:<numeric>", "azure:<oid>" or "google:<sub>"
 	expiresAt time.Time
 }
 

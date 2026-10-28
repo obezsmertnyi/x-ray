@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-**X-Ray** is an agentic memory substrate for local and Kubernetes-native use, written in Go. It keeps authored memory (typed items, `MemoryCell` objects in a cluster) and derived memory (a code graph, `xray graph`), searches both by keyword and by meaning (HNSW), and serves them over MCP, REST and Gemini Live voice, with OAuth-based authentication (GitHub, Entra).
+**X-Ray** is an agentic memory substrate for local and Kubernetes-native use, written in Go. It keeps authored memory (typed items, `MemoryCell` objects in a cluster) and derived memory (a code graph, `xray graph`), searches both by keyword and by meaning (HNSW), and serves them over MCP, REST and Gemini Live voice, with OAuth-based authentication (GitHub, Entra, Google).
 
 **The web UI is part of the binary.** It lives in `ui/` (a Next.js static export), `make ui` builds it and stages it in `internal/webui/web/`, and `//go:embed` compiles it into `xray`, which serves it at `/` on the same origin as the API. `make build UI=0` builds without it (no Node needed) and the binary then serves the API alone. The code graph has its own, smaller embedded page at `/ui` (`xray graph serve`).
 
@@ -62,7 +62,7 @@ xray/
 - CORS enabled for all origins
 
 **Session Lifecycle**
-1. **OAuth Login** → `/v1/auth/github` or `/v1/auth/entra` → session cookie (24h expiry)
+1. **OAuth Login** → `/v1/auth/github`, `/v1/auth/entra` or `/v1/auth/google` → session cookie (24h expiry)
 2. **Voice** → `GET /v1/voice` (WebSocket upgrade) → Gemini Live bidirectional audio session
 
 Session carriers (all resolved by one function, `sessionFromRequest` in `auth.go`): the `xray_session` cookie (same-origin browser), `Authorization: Bearer <token>` (MCP clients, and a UI on another origin), and `Sec-WebSocket-Protocol: bearer, <token>` — read **only** on an upgrade request, because a browser cannot set headers on a WebSocket handshake and `/v1/voice` would otherwise be unreachable for a bearer-authenticated UI. A login may hand its token to a UI on another host via `/v1/auth/github?ui=<origin>`, but only for origins listed in `--ui-callback-origins` (empty by default = feature off; exact scheme+host+port match, checked at login so an unapproved origin is never bound to a live login).

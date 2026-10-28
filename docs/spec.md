@@ -28,7 +28,7 @@ Data crosses three boundaries: from clients into the HTTP and MCP servers, from 
 ### Out of scope
 
 - Model-driven background work. The server makes no model call except to embed text and to hold a voice session. Consolidation, summarising and generalising belong to the agent, which writes the result back with `upsert_memory`.
-- Anything beyond the API and the web UI it serves: sign-in providers other than GitHub and Microsoft Entra, and tenant switching ([Web UI](#web-ui)).
+- Anything beyond the API and the web UI it serves: sign-in providers other than GitHub, Microsoft Entra and Google, and tenant switching ([Web UI](#web-ui)).
 
 ## Memory model
 
@@ -269,6 +269,7 @@ Every route under `/v1` needs a session except the sign-in routes, `/v1/version`
 |---|---|
 | GitHub sign-in | `--github-client-id`, `--github-client-secret`; `--github-org` restricts access to an organisation and `--github-team` to a team |
 | Microsoft Entra sign-in | `--azure-client-id`, `--azure-client-secret`, `--azure-tenant-id` |
+| Google sign-in | `--google-client-id`, `--google-client-secret`, `--google-domain` (Workspace domain, matched on the ID token `hd` claim) |
 | Session | A 24-hour `xray_session` cookie. The same token is accepted as `Authorization: Bearer`, and on a WebSocket upgrade as a subprotocol, because a browser cannot set headers on that handshake |
 | Session to another origin | A login may hand its token to a UI on a different host through `?ui=<origin>`, only for origins in `--ui-callback-origins`. Empty by default |
 | MCP, shared secret | A Secret named by `--mcp-token-secret`, key `token`. Full scope |
@@ -483,7 +484,7 @@ Flags set the baseline. The configuration cell and the chart's `values.yaml` ove
 | Maps | `--mental-maps-dir`, `--mental-maps-snapshot-key`, `--registry-pull-secret`, `--mental-maps-route-fanout` 1, `--mental-maps-ttl-min` 0 |
 | Graph server | `xray graph serve-snapshots`: `-snapshot-dir`, `-addr` 127.0.0.1:8085, `-writable`, `-memory-map` session, `-memory-ttl` 7d, `-skills-map` skills, `-graph-ttl-min` 0, `-route-fanout` 1, `-embedding-endpoint` http://localhost:8090, `-embedding-model` nomic, `-embedding-dims` 256, `-embedding-max-input-chars` 8192, `-snapshot-key`, `-auth-token-file`, `-allowed-hosts`, `-allowed-origins`. `serve` takes `-repo` and listens on 127.0.0.1:8084 |
 | Voice | `--gemini-api-key`, `--voice-model`, `--voice-location`, `--voice-name`, `--user-daily-audio-token-limit`, `--max-concurrent-voice`, `--voice-max-output-tokens`, `--voice-affective-dialog`, `--voice-proactive-audio` |
-| Sign-in and MCP | `--public-url`, `--github-client-id`, `--github-client-secret`, `--github-org`, `--github-team`, `--azure-client-id`, `--azure-client-secret`, `--azure-tenant-id`, `--ui-callback-origins`, `--mcp-token-secret`, `--mcp-oauth`, `--mcp-resource-url`, `--mcp-token-ttl` 15m, `--dev` |
+| Sign-in and MCP | `--public-url`, `--github-client-id`, `--github-client-secret`, `--github-org`, `--github-team`, `--azure-client-id`, `--azure-client-secret`, `--azure-tenant-id`, `--google-client-id`, `--google-client-secret`, `--google-domain`, `--ui-callback-origins`, `--mcp-token-secret`, `--mcp-oauth`, `--mcp-resource-url`, `--mcp-token-ttl` 15m, `--dev` |
 | Retention | `--episodic-ttl` 168h, `--retention-sweep-interval` 1h |
 | Requests | `--max-request-bytes` 1 MiB, `--trusted-proxy-hops` 0 |
 | Tracing | `--otel-endpoint`, `--otel-project`, `--otel-token-secret` |
@@ -498,7 +499,7 @@ Flags set the baseline. The configuration cell and the chart's `values.yaml` ove
 | args | The flag list given to the container |
 | mcp.* | Token Secret name, OAuth on or off, resource URL, token lifetime, optional dedicated hostname |
 | dev | Adds `--dev`: sign-in off, any origin accepted. For a first look through a port-forward only; without it the server refuses to start until a sign-in method and `--public-url` are set |
-| github.secretName, azure.secretName | The Secret holding the sign-in client id and secret. Empty by default, so a fresh install needs no Secret of its own besides the MCP token |
+| github.secretName, azure.secretName, google.secretName | The Secret holding the sign-in client id and secret. Empty by default, so a fresh install needs no Secret of its own besides the MCP token |
 | imagePullSecrets | Secrets for pulling the images from a private registry |
 | ingress, httpRoute | An Ingress, or a Gateway API route, in front of the server |
 
