@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Swiping between tabs on a phone no longer stutters. Every touchmove re-rendered every tab, the Home graph included, and moving the graph repainted its SVG, which draws a drop-shadow filter on every tag line. The drag is now written to the panels once per animation frame, each panel keeps its own compositor layer, and the tab sections are memoised.
+
 ## [2.4.2] - 2026-10-29
 
 ### Fixed

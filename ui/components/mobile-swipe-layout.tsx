@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useCallback, useEffect, useMemo } from "react"
+import { memo, useState, useRef, useCallback, useEffect, useMemo } from "react"
 import { Sparkles, LogOut, Search, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useMemoryList, useMemoryHits, useMetrics, useMemorySearch } from "@/hooks/use-memory"
@@ -74,11 +74,13 @@ function mergeById(remote: MemoryItem[], local: MemoryItem[]): MemoryItem[] {
 }
 
 // ─── Section content components ───────────────────────────────────────────────
+// Memoised: their props stay the same across the layout's own re-renders
+// (voice transcript, quota, menus), so only the data they read re-renders them.
 
 // Generic category list: fetch by the category's backend kind, narrow to the
 // category by (kind, tag) via the resolver, then sort newest-first. Events and
 // Notes need special handling (date grouping / per-user fetch) and stay below.
-function CategorySection({ categoryId, onOpen, query }: SectionProps & { categoryId: string }) {
+const CategorySection = memo(function CategorySection({ categoryId, onOpen, query }: SectionProps & { categoryId: string }) {
   const category = categoryById(categoryId)
   const { items, loading } = useMemoryList({ kind: category?.kind })
   const { hits } = useMemoryHits()
@@ -96,9 +98,9 @@ function CategorySection({ categoryId, onOpen, query }: SectionProps & { categor
     return mergeById(remoteHits, localHits)
   }, [items, category, query, searchResults])
   return <CardList items={filtered} loading={loading} hitSet={hitSet} empty={`No ${(category?.label ?? "items").toLowerCase()} yet.`} onOpen={onOpen} />
-}
+})
 
-function NotesSection({ onOpen, query }: SectionProps) {
+const NotesSection = memo(function NotesSection({ onOpen, query }: SectionProps) {
   const { username } = useAuth()
   const { hits } = useMemoryHits()
   const hitSet = useMemo(() => new Set(hits?.itemIds ?? []), [hits])
@@ -120,7 +122,7 @@ function NotesSection({ onOpen, query }: SectionProps) {
     [items, query]
   )
   return <CardList items={sorted} loading={loading} hitSet={hitSet} empty="No personal notes yet." onOpen={onOpen} />
-}
+})
 
 function groupByMonth(items: MemoryItem[]): [string, MemoryItem[]][] {
   const map = new Map<string, MemoryItem[]>()
@@ -133,7 +135,7 @@ function groupByMonth(items: MemoryItem[]): [string, MemoryItem[]][] {
   return Array.from(map.entries())
 }
 
-function EventsSection({ onOpen, query }: SectionProps) {
+const EventsSection = memo(function EventsSection({ onOpen, query }: SectionProps) {
   const { items, loading } = useMemoryList({ kind: "event" })
   const { hits } = useMemoryHits()
   const hitSet = useMemo(() => new Set(hits?.itemIds ?? []), [hits])
@@ -169,7 +171,7 @@ function EventsSection({ onOpen, query }: SectionProps) {
       ))}
     </div>
   )
-}
+})
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -208,7 +210,7 @@ function CardList({ items, loading, hitSet, empty, onOpen }: {
 // via a tooltip, then tap the tooltip to open the item; section browsing lives
 // in the bottom tab bar.
 
-function HomeSection({ onOpenItem, query }: { onOpenItem: (id: string, kind?: string) => void; query?: string }) {
+const HomeSection = memo(function HomeSection({ onOpenItem, query }: { onOpenItem: (id: string, kind?: string) => void; query?: string }) {
   const { username, userID } = useAuth()
   const { hits } = useMemoryHits()
   const [userNotes, setUserNotes] = useState<MemoryItemSummary[]>([])
@@ -272,19 +274,29 @@ function HomeSection({ onOpenItem, query }: { onOpenItem: (id: string, kind?: st
       />
     </div>
   )
-}
+})
 
 // ─── Main swipe layout ────────────────────────────────────────────────────────
 
 const SWIPE_THRESHOLD = 50
+const PANEL_TRANSITION = "transform 0.28s cubic-bezier(0.4,0,0.2,1)"
+
+function panelTransform(idx: number, center: number, delta: number): string {
+  return `translateX(calc(${(idx - center) * 100}% + ${delta}px))`
+}
 
 export function MobileSwipeLayout() {
   const categories = useCategories()
   const TABS = useMemo(() => buildTabs(categories), [categories])
   const HOME_IDX = useMemo(() => TABS.findIndex(t => t.id === "home"), [TABS])
   const [active, setActive] = useState<number>(HOME_IDX)
-  const [dragging, setDragging] = useState(false)
-  const [dragDelta, setDragDelta] = useState(0)
+  // The drag lives in refs and is written straight to the panels' style, one
+  // write per animation frame. Keeping the offset in state re-rendered every
+  // tab (the Home graph and every list) on each touchmove, which made swipes
+  // stutter on phones.
+  const panelRefs = useRef<(HTMLDivElement | null)[]>([])
+  const dragDelta = useRef(0)
+  const dragFrame = useRef<number | null>(null)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
   const axisLock = useRef<"h" | "v" | null>(null)
   const [voiceEnabled, setVoiceEnabled] = useState(false)
@@ -314,10 +326,23 @@ export function MobileSwipeLayout() {
   const homeIdx = HOME_IDX
   const onHome = active === homeIdx
 
+  const clampTab = useCallback((idx: number) => Math.max(0, Math.min(TABS.length - 1, idx)), [TABS])
+
   const goTo = useCallback((idx: number) => {
-    setActive(Math.max(0, Math.min(TABS.length - 1, idx)))
+    setActive(clampTab(idx))
     setQuery("")  // search is scoped per-tab; clear when switching
-  }, [TABS])
+  }, [clampTab])
+
+  // Places every panel around tab `center`, shifted by `delta` px. With delta 0
+  // this is exactly what the render below produces, so after a drag the DOM and
+  // React agree again.
+  const placePanels = useCallback((center: number, delta: number, animate: boolean) => {
+    panelRefs.current.forEach((el, idx) => {
+      if (!el) return
+      el.style.transition = animate ? PANEL_TRANSITION : "none"
+      el.style.transform = panelTransform(idx, center, delta)
+    })
+  }, [])
 
   const openItem = useCallback((id: string, kind?: string) => {
     setOverlay({ id, kind })
@@ -344,8 +369,7 @@ export function MobileSwipeLayout() {
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
     axisLock.current = null
-    setDragging(true)
-    setDragDelta(0)
+    dragDelta.current = 0
   }, [])
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
@@ -357,18 +381,40 @@ export function MobileSwipeLayout() {
     if (axisLock.current === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
       axisLock.current = Math.abs(dx) > Math.abs(dy) ? "h" : "v"
     }
-    if (axisLock.current === "h") setDragDelta(dx)
-  }, [])
+    if (axisLock.current !== "h") return
+    dragDelta.current = dx
+    if (dragFrame.current === null) {
+      dragFrame.current = requestAnimationFrame(() => {
+        dragFrame.current = null
+        placePanels(active, dragDelta.current, false)
+      })
+    }
+  }, [active, placePanels])
 
   const onTouchEnd = useCallback(() => {
-    if (axisLock.current === "h" && Math.abs(dragDelta) >= SWIPE_THRESHOLD) {
-      goTo(active + (dragDelta < 0 ? 1 : -1))
+    if (dragFrame.current !== null) {
+      cancelAnimationFrame(dragFrame.current)
+      dragFrame.current = null
     }
-    setDragging(false)
-    setDragDelta(0)
+    if (axisLock.current === "h") {
+      const step = Math.abs(dragDelta.current) >= SWIPE_THRESHOLD ? (dragDelta.current < 0 ? 1 : -1) : 0
+      // Settle the panels here: when the target is the current tab (a short
+      // drag, or a swipe past the first or last tab) React has nothing new to
+      // render and would leave them where the drag left them.
+      placePanels(clampTab(active + step), 0, true)
+      if (step !== 0) goTo(active + step)
+    }
     touchStart.current = null
     axisLock.current = null
-  }, [dragDelta, active, goTo])
+    dragDelta.current = 0
+  }, [active, clampTab, goTo, placePanels])
+
+  // An interrupted gesture (system swipe, incoming call) snaps back to the
+  // current tab.
+  const onTouchCancel = useCallback(() => {
+    dragDelta.current = 0
+    onTouchEnd()
+  }, [onTouchEnd])
 
   const activeColor = TABS[active].color
 
@@ -453,24 +499,23 @@ export function MobileSwipeLayout() {
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
         {/* Each panel is absolutely sized to the container (inset-0) and slid into
             place by its offset from the active tab. No wide track / vw widths, so
-            it can never overflow the screen (standalone PWA safe). */}
+            it can never overflow the screen (standalone PWA safe). will-change
+            keeps each panel on its own layer, so a slide never repaints the graph. */}
         {TABS.map(({ id }, idx) => {
           const q = idx === active ? query : ""
-          const offset = `calc(${(idx - active) * 100}% + ${dragDelta}px)`
           return (
             <div
               key={id}
+              ref={el => { panelRefs.current[idx] = el }}
               className={cn(
                 "absolute inset-0",
                 id === "home" ? "overflow-hidden" : "overflow-y-auto overscroll-contain",
               )}
-              style={{
-                transform: `translateX(${offset})`,
-                transition: dragging ? "none" : "transform 0.28s cubic-bezier(0.4,0,0.2,1)",
-              }}
+              style={{ transform: panelTransform(idx, active, 0), transition: PANEL_TRANSITION, willChange: "transform" }}
             >
               {id === "home" ? (
                 <HomeSection onOpenItem={openItem} query={q} />
