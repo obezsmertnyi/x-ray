@@ -46,6 +46,24 @@ xray container env, generated from values.
       name: {{ .Values.azure.secretName }}
       key: AZURE_TENANT_ID
 {{- end }}
+{{- if .Values.google.secretName }}
+- name: GOOGLE_CLIENT_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.google.secretName }}
+      key: GOOGLE_CLIENT_ID
+- name: GOOGLE_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.google.secretName }}
+      key: GOOGLE_CLIENT_SECRET
+- name: GOOGLE_DOMAIN
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.google.secretName }}
+      key: GOOGLE_DOMAIN
+      optional: true
+{{- end }}
 {{- end -}}
 
 {{/*

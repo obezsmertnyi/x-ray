@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- **Google sign-in.** `--google-client-id`, `--google-client-secret` and `--google-domain` (or `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_DOMAIN`, chart `google.secretName`). Only accounts of that Google Workspace domain get a session: the check is on the ID token's `hd` claim, not the email suffix. Without `--google-domain` the server refuses to start unless `--allow-any-user`. Existing deployments derive the same session and MCP signing keys.
+
 ### Fixed
 - `/v1/categories` leaves out a category's unset `tier` and `angle`. They were sent as 0, which the UI keeps, so a deployment that only relabels its categories had every graph region drawn at the centre.
 

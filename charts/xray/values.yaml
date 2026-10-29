@@ -83,7 +83,7 @@ args:
   - --metrics-address=:9090
   #
   # Sign-in, required unless --dev. Create the Secret named by github.secretName
-  # (or azure.secretName), set that value, and add:
+  # (or azure.secretName, google.secretName), set that value, and add:
   # - --public-url=https://xray.example.com
   # - --github-org=YOUR_GITHUB_ORG      # required with GitHub sign-in (or --allow-any-user)
   #
@@ -111,7 +111,7 @@ args:
   # - --ui-callback-origins=https://xray-ui.example.com
   # OAuth client IDs and secrets are NOT passed as flags: as --flag=$(VAR) they
   # would land in the process argv. They reach the binary as environment variables
-  # from the Secret named by github.secretName or azure.secretName.
+  # from the Secret named by github.secretName, azure.secretName or google.secretName.
 
 # Main-container health probes against /healthz. Defaults preserve prior
 # hardcoded behaviour; override per-deployment (e.g. slower startup needs a
@@ -472,6 +472,19 @@ azure:
   # AZURE_TENANT_ID. Empty = no Entra sign-in.
   secretName: ""
 
+# Google OAuth (a Web application client; redirect URI <publicURL>/v1/auth/google/callback)
+# kubectl create secret generic google-oauth -n xray \
+#   --from-literal=GOOGLE_CLIENT_ID=<id> --from-literal=GOOGLE_CLIENT_SECRET=<secret> \
+#   --from-literal=GOOGLE_DOMAIN=<workspace domain>
+# Only accounts of that Google Workspace domain sign in (checked on the ID token's hd
+# claim). Without GOOGLE_DOMAIN the server refuses to start; --allow-any-user admits
+# every Google account.
+google:
+  # Name of the Secret holding GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and
+  # GOOGLE_DOMAIN (optional key; without it the server refuses to start unless
+  # --allow-any-user). Empty = no Google sign-in.
+  secretName: ""
+
 # MCP server — set enabled: true to expose Model Context Protocol endpoint.
 mcp:
   enabled: true
@@ -493,7 +506,7 @@ mcp:
   # nginx `/` route already reaches it (no extra ingress path needed). MCP clients
   # authenticate with an X-Ray-issued, audience-bound JWT (per-user scopes); the
   # static tokenSecret above still works as a fallback. Requires the user to be
-  # logged into the web app (GitHub/Entra) in the same browser first.
+  # logged into the web app (GitHub/Entra/Google) in the same browser first.
   # The signing key is derived from the OAuth client secret(s) (ADR-050), so tokens
   # survive a restart and validate on every replica. With no OAuth client secret
   # the key is random per process and tokens end at a restart.

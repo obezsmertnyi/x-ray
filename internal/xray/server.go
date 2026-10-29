@@ -28,6 +28,7 @@ type Server struct {
 	voice         *VoiceManager
 	github        *githubAuth
 	azure         *azureAuth
+	google        *googleAuth
 	allowedOrigin string // CORS origin; empty = "*" (dev only)
 	maxBodyBytes  int64  // request body cap for non-WS routes; 0 = unlimited
 	devMu         sync.Mutex
@@ -38,13 +39,30 @@ type Server struct {
 	config        *ConfigWatcher // nil-safe: ConfigWatcher.Get() never returns nil
 }
 
-func NewServer(logger zerolog.Logger, memory *MemoryStore, uiFS fs.FS, ghCfg GitHubOAuthConfig, azCfg AzureOAuthConfig, allowedOrigin string, maxBodyBytes int64, config *ConfigWatcher) *Server {
+// ServerOption configures an optional part of the Server.
+type ServerOption func(*serverOptions)
+
+type serverOptions struct {
+	google GoogleOAuthConfig
+}
+
+// WithGoogleOAuth turns on Google sign-in.
+func WithGoogleOAuth(cfg GoogleOAuthConfig) ServerOption {
+	return func(o *serverOptions) { o.google = cfg }
+}
+
+func NewServer(logger zerolog.Logger, memory *MemoryStore, uiFS fs.FS, ghCfg GitHubOAuthConfig, azCfg AzureOAuthConfig, allowedOrigin string, maxBodyBytes int64, config *ConfigWatcher, opts ...ServerOption) *Server {
+	var o serverOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	s := &Server{
 		logger:        logger,
 		memory:        memory,
 		uiFS:          uiFS,
 		github:        newGitHubAuth(ghCfg),
 		azure:         newAzureAuth(azCfg),
+		google:        newGoogleAuth(o.google),
 		allowedOrigin: allowedOrigin,
 		maxBodyBytes:  maxBodyBytes,
 		config:        config,
@@ -277,17 +295,20 @@ func (s *Server) registerAuthRoutes() {
 	s.mux.HandleFunc("/v1/auth/github/callback", s.github.handleCallback)
 	s.mux.HandleFunc("/v1/auth/entra", s.azure.handleLogin)
 	s.mux.HandleFunc("/v1/auth/entra/callback", s.azure.handleCallback)
+	s.mux.HandleFunc("/v1/auth/google", s.google.handleLogin)
+	s.mux.HandleFunc("/v1/auth/google/callback", s.google.handleCallback)
 	s.mux.HandleFunc("/v1/auth/logout", s.github.handleLogout)
 
 	// /v1/auth/providers — which providers are configured, for rendering login
 	// buttons. Unauthenticated, so it returns only booleans: org/team/tenant
 	// restriction details are recon data and must not leak to anonymous callers
-	// (the login UI only consumes `github`/`azure`).
+	// (the login UI only consumes `github`/`azure`/`google`).
 	s.mux.HandleFunc("/v1/auth/providers", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"github": s.github.cfg.ClientID != "",
 			"azure":  s.azure.cfg.ClientID != "",
+			"google": s.google.cfg.ClientID != "",
 		})
 	})
 
@@ -610,7 +631,7 @@ func (s *Server) getMemoryItemByID(id string) (*memoryGetOutput, error) {
 // provider-scoped SSO ID (pre-hash).
 // authDisabled reports that no sign-in provider is configured (--dev).
 func (s *Server) authDisabled() bool {
-	return s.github.cfg.ClientID == "" && s.azure.cfg.ClientID == ""
+	return s.github.cfg.ClientID == "" && s.azure.cfg.ClientID == "" && s.google.cfg.ClientID == ""
 }
 
 // devUser is the built-in user of a server with sign-in off. It is a real

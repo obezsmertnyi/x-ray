@@ -108,6 +108,9 @@ func main() {
 		azureClientID             string
 		azureClientSecret         string
 		azureTenantID             string
+		googleClientID            string
+		googleClientSecret        string
+		googleDomain              string
 		dev                       bool
 		allowAnyUser              bool
 		mcpOAuth                  bool
@@ -165,9 +168,12 @@ func main() {
 	flag.StringVar(&azureClientID, "azure-client-id", "", "Azure AD OAuth app client ID")
 	flag.StringVar(&azureClientSecret, "azure-client-secret", "", "Azure AD OAuth app client secret")
 	flag.StringVar(&azureTenantID, "azure-tenant-id", "", "Azure AD tenant ID")
+	flag.StringVar(&googleClientID, "google-client-id", "", "Google OAuth client ID")
+	flag.StringVar(&googleClientSecret, "google-client-secret", "", "Google OAuth client secret")
+	flag.StringVar(&googleDomain, "google-domain", "", "Required Google Workspace domain (the ID token's hd claim) for access")
 	flag.BoolVar(&webUI, "ui", true, "Serve the embedded web UI at / (when this binary was built with one)")
 	flag.BoolVar(&dev, "dev", false, "Dev mode: disable auth requirement and allow all CORS origins")
-	flag.BoolVar(&allowAnyUser, "allow-any-user", false, "Let any GitHub account (no --github-org) or any Entra account (no --azure-tenant-id) sign in. Without it the server refuses to start with a provider and no restriction")
+	flag.BoolVar(&allowAnyUser, "allow-any-user", false, "Let any GitHub account (no --github-org), any Entra account (no --azure-tenant-id) or any Google account (no --google-domain) sign in. Without it the server refuses to start with a provider and no restriction")
 	flag.BoolVar(&mcpOAuth, "mcp-oauth", false, "Enable the co-located OAuth 2.1 authorization server for MCP (RFC 9728 discovery + /authorize + /token, mounted on the main server)")
 	flag.StringVar(&mcpResourceURL, "mcp-resource-url", "", "MCP resource URL advertised in OAuth metadata (default: <public-url>/mcp)")
 	flag.DurationVar(&mcpTokenTTL, "mcp-token-ttl", 15*time.Minute, "Lifetime of issued MCP access tokens")
@@ -193,6 +199,9 @@ func main() {
 	envDefault(&azureClientID, "AZURE_CLIENT_ID")
 	envDefault(&azureClientSecret, "AZURE_CLIENT_SECRET")
 	envDefault(&azureTenantID, "AZURE_TENANT_ID")
+	envDefault(&googleClientID, "GOOGLE_CLIENT_ID")
+	envDefault(&googleClientSecret, "GOOGLE_CLIENT_SECRET")
+	envDefault(&googleDomain, "GOOGLE_DOMAIN")
 
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
 	log.Logger = log.Output(zerolog.ConsoleWriter{
@@ -217,8 +226,8 @@ func main() {
 
 	// Production safety checks — fatal unless --dev is set.
 	if !dev {
-		if githubClientID == "" && azureClientID == "" {
-			log.Fatal().Msg("no OAuth provider configured — set --github-client-id or --azure-client-id, or pass --dev for local development")
+		if githubClientID == "" && azureClientID == "" && googleClientID == "" {
+			log.Fatal().Msg("no OAuth provider configured — set --github-client-id, --azure-client-id or --google-client-id, or pass --dev for local development")
 		}
 		if mcpAddr != "" && mcpTokenSecret == "" {
 			log.Fatal().Msg("--mcp-address requires --mcp-token-secret in production — pass --dev to skip")
@@ -233,8 +242,8 @@ func main() {
 	// --dev means sign-in is off. Together with a provider the server would run two
 	// authorisation models at once (MCP and CORS follow the flag, the API follows
 	// the provider), so the combination is refused.
-	if dev && (githubClientID != "" || azureClientID != "") {
-		log.Fatal().Msg("--dev turns sign-in off and cannot be combined with --github-client-id or --azure-client-id")
+	if dev && (githubClientID != "" || azureClientID != "" || googleClientID != "") {
+		log.Fatal().Msg("--dev turns sign-in off and cannot be combined with --github-client-id, --azure-client-id or --google-client-id")
 	}
 	if dev && !isLoopbackAddr(httpAddr) {
 		log.Warn().Str("addr", httpAddr).Msg("--dev with sign-in off is listening beyond loopback: anyone who can reach it can read and write memory")
@@ -253,6 +262,12 @@ func main() {
 			log.Fatal().Msg("entra sign-in needs --azure-tenant-id (any Entra account would otherwise get a session); pass --allow-any-user to admit everyone")
 		}
 		log.Warn().Msg("azure OAuth without --azure-tenant-id: any Entra user can log in (--allow-any-user)")
+	}
+	if googleClientID != "" && googleDomain == "" {
+		if !allowAnyUser {
+			log.Fatal().Msg("google sign-in needs --google-domain (any Google account would otherwise get a session); pass --allow-any-user to admit everyone")
+		}
+		log.Warn().Msg("google OAuth without --google-domain: any Google user can log in (--allow-any-user)")
 	}
 
 	otelToken := &observability.BearerToken{}
@@ -423,7 +438,7 @@ func main() {
 			// out despite a valid row in the CR. The flush callback only marks stats
 			// dirty; the actual CR write needs the writer wired below, which happens
 			// before any flush can fire. See ADR-047.
-			if key := sessionHMACKey(githubClientSecret, azureClientSecret); key != nil {
+			if key := sessionHMACKey(githubClientSecret, azureClientSecret, googleClientSecret); key != nil {
 				xray.SetSessionPersistence(key, memory.FlushStats)
 				logger.Info().Msg("session persistence enabled — logins survive restart, shared across replicas")
 			} else {
@@ -535,7 +550,14 @@ func main() {
 			logger.Info().Msg("this binary was built without the web UI (make ui); serving the API only")
 		}
 	}
-	srv := xray.NewServer(logger, memory, uiFS, ghCfg, azCfg, allowedOrigin, maxRequestBytes, configWatcher)
+	srv := xray.NewServer(logger, memory, uiFS, ghCfg, azCfg, allowedOrigin, maxRequestBytes, configWatcher,
+		xray.WithGoogleOAuth(xray.GoogleOAuthConfig{
+			ClientID:          googleClientID,
+			ClientSecret:      googleClientSecret,
+			Domain:            googleDomain,
+			PublicURL:         publicURL,
+			UICallbackOrigins: uiOrigins,
+		}))
 
 	if gcpProject != "" || geminiAPIKey != "" {
 		voiceLoc := voiceLocation
@@ -564,7 +586,7 @@ func main() {
 		// session HMAC key (ADR-050), so every replica converges on one key and
 		// cross-replica token validation works. nil seed (no secret) ⇒ random
 		// per-process key, single-replica only.
-		mcpSeed := xray.MCPSigningSeed(githubClientSecret, azureClientSecret)
+		mcpSeed := xray.MCPSigningSeed(githubClientSecret, azureClientSecret, googleClientSecret)
 		mcpAuth, err := xray.NewMCPAuthorizer(issuer, resourceURL, mcpTokenTTL, dev, nil, mcpSeed, logger)
 		if err != nil {
 			log.Fatal().Err(err).Msg("MCP authorizer init failed")

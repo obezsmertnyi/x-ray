@@ -31,7 +31,7 @@
 | Production data access | Read/write: MemoryCell resources and their status in the release namespace; read: all Secrets in the release namespace |
 | PII | User display name, hashed SSO identifier (SHA-256 prefix), voice transcripts, private user notes and session memories |
 | Sensitivity | Private per-user notes (`scope=private`), session tokens persisted in the system configuration cell status (HMAC-hashed, identity AES-GCM encrypted), OAuth client credentials, MCP bearer token |
-| Sign-in providers | GitHub OAuth (`--github-org` required, optional team), Microsoft Entra OAuth (`--azure-tenant-id` required); `--allow-any-user` admits every account of a provider |
+| Sign-in providers | GitHub OAuth (`--github-org` required, optional team), Microsoft Entra OAuth (`--azure-tenant-id` required), Google OAuth (`--google-domain` required, checked on the ID token `hd` claim); `--allow-any-user` admits every account of a provider |
 | MCP authentication | Static shared bearer secret (Secret named by `--mcp-token-secret`), or OAuth 2.1 with PKCE S256, dynamic client registration, EdDSA JWT access tokens (`--mcp-oauth`) |
 | MCP scopes | `xray:memory.read`, `xray:memory.write` |
 | Dev mode | `--dev` (chart value `dev`, default false): sign-in off, CORS any origin, built-in user `dev`; refused at startup together with a sign-in provider; warns when not listening on loopback |
@@ -95,7 +95,7 @@
 
 | Port | Protocol | Exposed by | Purpose | Deployed auth |
 |---|---|---|---|---|
-| 80 (chart `--http-address=:80`; flag default :8080) | HTTP | Service port 80 | Embedded UI, REST `/v1/*`, SSE `/v1/memory/events`, voice WebSocket `/v1/voice`, `/healthz` | Session cookie or bearer from GitHub/Entra sign-in; public paths: `/v1/auth/*`, `/v1/version`, `/v1/categories`, `/healthz`, `/manifest.json`, `/sw.js`. No auth under `--dev`. Process exits at startup without a sign-in provider, `--public-url` and (with MCP address set) an MCP token secret, unless `--dev` |
+| 80 (chart `--http-address=:80`; flag default :8080) | HTTP | Service port 80 | Embedded UI, REST `/v1/*`, SSE `/v1/memory/events`, voice WebSocket `/v1/voice`, `/healthz` | Session cookie or bearer from GitHub/Entra/Google sign-in; public paths: `/v1/auth/*`, `/v1/version`, `/v1/categories`, `/healthz`, `/manifest.json`, `/sw.js`. No auth under `--dev`. Process exits at startup without a sign-in provider, `--public-url` and (with MCP address set) an MCP token secret, unless `--dev` |
 | 80 (when `--mcp-oauth`) | HTTP | Service port 80 | `/mcp`, `/authorize`, `/token`, `/register`, `/.well-known/*` | OAuth JWT (audience bound) or static shared secret on `/mcp`; discovery, `/register`, `/token` public; `/authorize` needs a session cookie and `writeAllowedUsers` membership (bypassed under `--dev`) |
 | 8083 | HTTP | Service port `mcp` (when `mcp.enabled` and OAuth off) | Standalone MCP server (streamable HTTP) | Static shared bearer secret from the Secret named by `--mcp-token-secret`; fail-closed when empty; per-IP rate limit 5 req/s, burst 20 |
 | 9090 | HTTP | Pod annotation `prometheus.io/scrape` | `/metrics` (Prometheus) | None |
@@ -105,7 +105,7 @@
 | CORS | | `--public-url` origin only; any origin under `--dev` | Credentials not allowed | |
 | Request body cap | | `--max-request-bytes` 1 MiB (non-WebSocket routes) | | |
 | Cookies | | `xray_session` (HttpOnly, Secure, SameSite=Lax, 24 h), `xray_oauth_state` (HttpOnly, Secure, SameSite=Lax, 10 min) | | |
-| Egress hosts | | github.com, api.github.com, login.microsoftonline.com, graph.microsoft.com, Vertex AI / Gemini API, OCI registry named by a mental-map `graphRef`, OTLP endpoint, remote MCP server URLs | | |
+| Egress hosts | | github.com, api.github.com, login.microsoftonline.com, graph.microsoft.com, oauth2.googleapis.com (Google sign-in token exchange), Vertex AI / Gemini API, OCI registry named by a mental-map `graphRef`, OTLP endpoint, remote MCP server URLs | | |
 
 ## 7. Dependency Vulnerabilities
 
