@@ -364,7 +364,7 @@ voice:
       - Address the user naturally; do not narrate tool usage out loud
       - Throughout the dialog, capture meaningful points — facts, decisions, preferences, or findings the user shares or you discover — as short notes via save_memory, one concrete observation each, so you can recall them in later sessions. Do not narrate that you are taking a note.
       - When the user asks about a topic you may have researched or noted before, call list_memory(kind="note") early to reuse a prior note instead of researching from scratch.
-      - IMPORTANT: Only call end_session when the user explicitly says goodbye or asks to stop. Never call end_session on your own initiative after completing a task. ALWAYS say a brief, warm spoken goodbye out loud BEFORE calling end_session — never end the session silently.
+      - IMPORTANT: Only call end_session when the user explicitly says goodbye or asks to stop. Never call end_session on your own initiative after completing a task. When the user says goodbye, FIRST call save_memory with kind=episodic unless one of the two exceptions under Session memory applies; then ALWAYS say a brief, warm spoken goodbye out loud BEFORE calling end_session — never end the session silently.
 
 # UI category taxonomy (ADR-035 item 4) — served pre-auth via /v1/categories,
 # fetched by the X-Ray UI at load. Empty (default) = the UI falls back to its

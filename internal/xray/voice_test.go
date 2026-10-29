@@ -251,6 +251,21 @@ func TestEndSession_SetsPendingHangup(t *testing.T) {
 	assert.Contains(t, result, "ok")
 }
 
+// end_session hangs up without a reply, so the model's last chance to save the session's episodic
+// memory is before it; the description has to say so, or the model says goodbye and skips the save.
+func TestEndSession_DescriptionSavesBeforeHangingUp(t *testing.T) {
+	var ph atomic.Bool
+	desc := defEndSession(&ph, make(chan struct{})).decl.Description
+
+	save := strings.Index(desc, "save_memory")
+	last := strings.Index(desc, "as your last action")
+	require.NotEqual(t, -1, save, "description must mention save_memory")
+	require.NotEqual(t, -1, last)
+	assert.Contains(t, desc, "kind=episodic")
+	assert.Contains(t, desc, "ALWAYS", "the emphasis that keeps the model from hanging up silently")
+	assert.Less(t, save, last, "the save comes before the hangup")
+}
+
 func TestEndSession_IdempotentWhenCalledTwice(t *testing.T) {
 	var ph atomic.Bool
 	tool := defEndSession(&ph, make(chan struct{}))
