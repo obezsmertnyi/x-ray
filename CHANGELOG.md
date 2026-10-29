@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- A search hit pulses the region it belongs to when a deployment splits a kind into regions by tag (ADR-035). Hit events carried ids and kinds only, so the graph put a hit of a split kind in the kind's bare region, or in none. Hit events now also carry each shared item's tags (`tags`, parallel to `itemIds`; private items get none) and the graph resolves the region with them; events from an older server still place hits by kind.
+
 ## [2.4.4] - 2026-10-29
 
 ### Fixed

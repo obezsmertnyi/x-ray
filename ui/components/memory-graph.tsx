@@ -90,6 +90,9 @@ interface Props {
   // flash below simply doesn't fire in that case, degrading to today's
   // cell-only behaviour.
   hitKinds?: Map<string, string>
+  // Per-hit-id tags (lib/api.ts hitTagMap), so a hit lands in a category split
+  // off its kind by tag rather than in the kind's bare category.
+  hitTags?: Map<string, string[]>
   hitKey?: number
   extraItems?: MemoryItemSummary[]
   onSelect?: (id: string, screenX: number, screenY: number, kind?: string) => void
@@ -106,7 +109,7 @@ interface Props {
   maxNodes?: number
 }
 
-export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, extraItems, onSelect, showKindLabels = true, tapShowsTooltip = false, maxNodes }: Props) {
+export function MemoryGraph({ className, query, highlightIds, hitKinds, hitTags, hitKey, extraItems, onSelect, showKindLabels = true, tapShowsTooltip = false, maxNodes }: Props) {
   const nodeBudget = maxNodes ?? MAX_RENDER_NODES
   const router = useRouter()
   const svgRef = useRef<SVGSVGElement>(null)
@@ -281,14 +284,14 @@ export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, 
     // whole region once per DISTINCT category, so N hits landing in the same
     // region (e.g. several `event` hits in one batch) read as one pulse
     // instead of N stacked transitions saturating to a solid block. Kind is
-    // resolved from hitKinds (server-provided, kind-only — no per-item tags
-    // available here, see lib/api.ts hitKindMap's doc comment) rather than
-    // from any locally-known item, so this fires identically whether or not
-    // the hit is actually drawn.
+    // resolved from hitKinds and the tags from hitTags (both server-provided,
+    // see lib/api.ts hitKindMap and hitTagMap) rather than from any
+    // locally-known item, so this fires identically whether or not the hit is
+    // actually drawn; the tags place it in a category split off its kind by tag.
     const hitCategoryIds = new Set<string>()
     newHits.forEach(id => {
       const kind = hitKinds?.get(id)
-      if (kind) hitCategoryIds.add(catKey({ kind }))
+      if (kind) hitCategoryIds.add(catKey({ kind, tags: hitTags?.get(id) }))
     })
 
     // Opt-in tracing for "the hit arrived but nothing lit up". Off unless the
@@ -413,7 +416,7 @@ export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, 
     if (newHits.length > 0 || hitCategoryIds.size > 0) {
       fireOptogenetic(svgRef.current, { categoryIds: hitCategoryIds, itemIds: newHits })
     }
-  }, [highlightIds, hitKinds, hitKey, drawVersion])
+  }, [highlightIds, hitKinds, hitTags, hitKey, drawVersion])
 
   // Merge personal notes (extraItems) into the base list, deduplicating by id.
   const allItems = useMemo(() => {
