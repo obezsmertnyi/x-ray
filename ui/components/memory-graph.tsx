@@ -28,8 +28,10 @@ const REGION_FLASH_OPACITY = 0.7
 //
 // Hard cap on D3 SVG nodes, to keep a large store from freezing the browser.
 // Sized to what the fetch above can actually return, so no category is
-// starved of nodes by the budget: the server caps ListSummaryPerKind at
-// GRAPH_NODES_PER_KIND items PER KIND, and kind is a free string on the
+// starved of nodes by the budget: the server caps the summary at
+// GRAPH_NODES_PER_KIND items per category (per kind, or per kind and tag for a
+// deployment's tagged ui.categories; the round-robin budget below keeps every
+// category represented when that returns more), and kind is a free string on the
 // backend — beyond the 12 categories in category-config.ts, a handful of
 // legacy/fallback kinds (recent_change, hypothesis, unknown) still surface as
 // their own round-robin bucket via UNKNOWN_CATEGORY. ~15 known kinds total.
@@ -115,6 +117,7 @@ export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, 
   // preview per category, so category labels use these real totals, not the
   // number of drawn nodes).
   const [totalsByKind, setTotalsByKind] = useState<Record<string, number>>({})
+  const [totalsByCategory, setTotalsByCategory] = useState<Record<string, number>>({})
   const [serverResults, setServerResults] = useState<MemoryItemSummary[]>([])
   const [searching, setSearching] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -130,9 +133,10 @@ export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, 
     try {
       // Bounded preview: up to N active cells per category. total is the true
       // full store size (not the preview count).
-      const { items: data, total, totalsByKind: byKind } = await fetchMemorySummary({ perKind: GRAPH_NODES_PER_KIND })
+      const { items: data, total, totalsByKind: byKind, totalsByCategory: byCategory } = await fetchMemorySummary({ perKind: GRAPH_NODES_PER_KIND })
       setTotalItems(total)
       setTotalsByKind(byKind)
+      setTotalsByCategory(byCategory ?? {})
       setItems(data.filter(it => it.status === "active" || it.status === "indexed"))
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load")
@@ -594,8 +598,15 @@ export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, 
       // Sum the real per-kind totals for the kinds this category actually holds.
       // During a search there's no full-store total for the matched subset, so
       // fall back to the drawn count (which is the match count).
+      // A category the deployment splits off its kind by tag has its own total
+      // (totalsByCategory, keyed "kind|tag"); the kind's total would count every
+      // category of that kind. An untagged category is keyed by its items' kind:
+      // the fallback category of a kind with only tagged ones has kind "unknown".
       let count = kitems.length
-      if (!query?.trim() && Object.keys(totalsByKind).length > 0) {
+      const byCategory = totalsByCategory[cat.tag ? `${cat.kind}|${cat.tag}` : (kitems[0]?.kind ?? cat.kind)]
+      if (!query?.trim() && byCategory !== undefined) {
+        count = byCategory
+      } else if (!query?.trim() && Object.keys(totalsByKind).length > 0) {
         const kinds = new Set(kitems.map(it => it.kind))
         let sum = 0
         kinds.forEach(k => { sum += totalsByKind[k] ?? 0 })
@@ -707,7 +718,7 @@ export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, 
         .attr("pointer-events", "none")
     })
 
-  }, [filteredItems, router, showKindLabels, tapShowsTooltip, totalsByKind, query])
+  }, [filteredItems, router, showKindLabels, tapShowsTooltip, totalsByKind, totalsByCategory, query])
 
   if (loading) return (
     <div className={cn("flex items-center justify-center h-full text-muted-foreground", className)}>

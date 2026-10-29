@@ -383,8 +383,9 @@ type memorySummaryInput struct {
 	Top     int    `query:"top"`
 	// PerKind bounds the graph preview to at most this many active items per
 	// kind (not a global cap), so every category is represented even when one
-	// kind dominates. When > 0 it takes precedence over Top; Total is still the
-	// true full count. The UI passes its GRAPH_NODES_PER_KIND constant here.
+	// kind dominates; a kind split by tag into several ui.categories gets this
+	// many per category. When > 0 it takes precedence over Top; Total is still
+	// the true full count. The UI passes its GRAPH_NODES_PER_KIND constant here.
 	PerKind int `query:"perKind"`
 }
 
@@ -396,6 +397,10 @@ type memorySummaryOutput struct {
 		// per-kind render cap), so the UI labels each category with its real
 		// count. Only populated for the perKind (graph preview) path.
 		TotalsByKind map[string]int `json:"totalsByKind,omitempty"`
+		// TotalsByCategory is the same count per display category: "kind|tag"
+		// for a category of ui.categories configured with a tag, "kind" for the
+		// rest of that kind (ADR-035). Only populated for the perKind path.
+		TotalsByCategory map[string]int `json:"totalsByCategory,omitempty"`
 	}
 }
 
@@ -476,12 +481,16 @@ func (s *Server) registerMemoryRoutes() {
 	}, func(_ context.Context, in *memorySummaryInput) (*memorySummaryOutput, error) {
 		var items []MemoryItemSummary
 		var total int
-		var totalsByKind map[string]int
+		var totalsByKind, totalsByCategory map[string]int
 		if in.PerKind > 0 {
-			// Bounded graph preview: up to PerKind active items per kind, with
-			// Total and TotalsByKind reporting the true full store size so the UI
+			// Bounded graph preview: up to PerKind active items per category, with
+			// Total and the totals reporting the true full store size so the UI
 			// can label each category with its real count, not the capped one.
-			items, total, totalsByKind = s.memory.ListSummaryPerKind(in.PerKind)
+			var categories []CategoryConfig
+			if s.config != nil {
+				categories = s.config.Get().Categories
+			}
+			items, total, totalsByKind, totalsByCategory = s.memory.ListSummaryPerCategory(in.PerKind, categories)
 		} else {
 			top := in.Top
 			if top <= 0 {
@@ -497,6 +506,7 @@ func (s *Server) registerMemoryRoutes() {
 		out.Body.Items = items
 		out.Body.Total = total // true full count (ignores the preview cap)
 		out.Body.TotalsByKind = totalsByKind
+		out.Body.TotalsByCategory = totalsByCategory
 		return out, nil
 	})
 
