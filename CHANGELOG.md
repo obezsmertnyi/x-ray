@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- A voice session no longer crashes the server with `concurrent write to websocket connection`. When the model asks for several tools at once, each runs in its own goroutine and writes to the browser; every write to the browser connection now holds one lock.
+
 ## [2.4.0] - 2026-10-29
 
 ### Added

@@ -486,6 +486,20 @@ func (m *VoiceManager) VoiceMetrics() map[string]any {
 // ─── VoiceSession ─────────────────────────────────────────────────────────────
 
 // VoiceSession is one active browser ↔ Gemini Live session.
+// browserConn is the voice session's browser connection with writes serialized. gorilla/websocket
+// allows one concurrent writer, and tool calls write from their own goroutines, so write only through
+// WriteJSON: the embedded Conn's other write methods are not guarded.
+type browserConn struct {
+	*websocket.Conn
+	mu sync.Mutex
+}
+
+func (c *browserConn) WriteJSON(v any) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Conn.WriteJSON(v)
+}
+
 type VoiceSession struct {
 	id            string
 	username      string // human-readable login (display, writeAllowed check), empty if auth disabled
@@ -493,7 +507,7 @@ type VoiceSession struct {
 	liveModel     string
 	greeting      string
 	memory        *MemoryStore
-	browser       *websocket.Conn
+	browser       *browserConn
 	live          *genai.Session
 	tools         []voiceToolDef
 	logger        zerolog.Logger
@@ -620,7 +634,7 @@ func newVoiceSession(
 		liveModel:        liveModel,
 		greeting:         greeting,
 		memory:           memory,
-		browser:          conn,
+		browser:          &browserConn{Conn: conn},
 		logger:           logger,
 		cancel:           cancel,
 		done:             make(chan struct{}),
