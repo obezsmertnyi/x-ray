@@ -437,7 +437,7 @@ func (m *VoiceManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Info().Str("remote", remote).Str("voice", voice).Strs("tools", toolNames).Int("prompt_len", len(systemPrompt)).Msg("voice session started")
 
-	session, err := newVoiceSession(r.Context(), id, ghUser, userHash, writeAllowed, conn, m.memory, m.syncer, genaiClient, liveModel, voice, systemPrompt, greeting, enabledTools, pinnedIDs, mcpServers, m.secrets, m.namespace, headroomLimit, m.maxOutputTokens, affectiveDialog, proactiveAudio, m.memMapsDeps, log)
+	session, err := newVoiceSession(r.Context(), id, ghUser, userHash, writeAllowed, conn, m.memory, m.syncer, genaiClient, liveModel, voice, systemPrompt, greeting, enabledTools, m.config.Get().Categories, pinnedIDs, mcpServers, m.secrets, m.namespace, headroomLimit, m.maxOutputTokens, affectiveDialog, proactiveAudio, m.memMapsDeps, log)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create voice session")
 		conn.WriteJSON(VoiceServerMessage{Error: fmt.Sprintf("failed to connect to voice model: %v", err)}) //nolint:errcheck
@@ -603,6 +603,7 @@ func newVoiceSession(
 	genaiClient *genai.Client,
 	liveModel, voice, systemPrompt, greeting string,
 	enabledTools []string,
+	categories []CategoryConfig,
 	pinnedIDs []string,
 	mcpServers []MCPServerRef,
 	secrets *SecretStore,
@@ -629,7 +630,7 @@ func newVoiceSession(
 		sessionStartTime: time.Now(),
 		pinnedIDs:        pinnedIDs,
 	}
-	s.tools = buildVoiceTools(memory, syncer, namespace, username, userHash, writeAllowed, enabledTools, headroomLimit, logger, s.getPinnedIDs, &s.pendingHangup, &s.turnIdle, s.hangup)
+	s.tools = buildVoiceTools(memory, syncer, namespace, username, userHash, writeAllowed, enabledTools, categories, headroomLimit, logger, s.getPinnedIDs, &s.pendingHangup, &s.turnIdle, s.hangup)
 	// Embedded code graph (ADR-046): offer the six code read tools as NATIVE
 	// in-process tools — direct function calls into the graph, no MCP hop.
 	if memMapsDeps != nil {

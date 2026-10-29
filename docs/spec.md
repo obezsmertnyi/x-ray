@@ -304,7 +304,7 @@ Each session reads the `system_configuration` cell at its start, so edits apply 
 | maxItemContentChars | Bound on each memory item's content in tool results |
 | affectiveDialog, proactiveAudio | Gemini Live options, native-audio models only |
 
-The voice tools are `search_memory`, `list_memory`, `get_memory`, `fetch_memory`, `recent_memory`, `upsert_memory`, `save_memory`, `delete_memory` and `end_session`. Voice writes are private to the user. When a map is loaded the graph tools are available to the model too.
+The voice tools are `search_memory`, `list_memory`, `get_memory`, `fetch_memory`, `recent_memory`, `upsert_memory`, `save_memory`, `delete_memory` and `end_session`. Voice writes are private to the user. In voice, `get_memory` also returns the graph's regions with their item counts and, for items tagged `doc:<id>`, documents, sections and up to 50 titles (ADR-035). When a map is loaded the graph tools are available to the model too.
 
 ### Limits
 

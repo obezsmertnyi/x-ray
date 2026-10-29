@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- **Regions for voice.** The voice tool `get_memory` also returns the graph's regions, the display categories of ADR-035 in their configured order: per region its item count, and for cells carrying a `doc:<id>` tag (the sections of one source document) the number of documents and sections and up to 50 document titles. A voice agent can now say how many documents there are and what a region holds; it used to count cells by kind, sections included, or count a capped `list_memory` page.
+
 ## [2.4.4] - 2026-10-29
 
 ### Fixed

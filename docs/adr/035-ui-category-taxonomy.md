@@ -112,6 +112,15 @@ Blog/News/Projects/Team is a *customization* of the raw ADR-020 kinds. So:
   `{kind: stable_fact, label: Blog, icon: BookOpen}` — no repeating the
   mechanical fields.
 
+## Addendum (2026-10-29): regions for voice
+
+The voice tool `get_memory` also returns the regions, in the configured order and keyed as the
+graph keys them, so a voice agent can say how many items a region holds and what is in it. Items
+cut from one source document may share a `doc:<id>` tag; per region `get_memory` then counts the
+documents and their sections and names up to 50 documents, from section titles written as
+`<document>: <heading>`. Without such tags a region reports its item count only. Shared items only,
+as for the rest of `get_memory`. MCP `get_memory` is unchanged.
+
 ## Tests
 
 - Go: `TestServer_Categories_Empty`, `TestServer_Categories_FromConfig`

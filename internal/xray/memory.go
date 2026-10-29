@@ -1014,20 +1014,8 @@ func (s *MemoryStore) ListSummaryPerKind(perKind int) (items []MemoryItemSummary
 // UI's categoryOf order), else its kind. Without tagged categories this is
 // ListSummaryPerKind.
 func (s *MemoryStore) ListSummaryPerCategory(perCategory int, categories []CategoryConfig) (items []MemoryItemSummary, total int, totalsByKind, totalsByCategory map[string]int) {
-	tagsByKind := make(map[string][]string)
-	for _, c := range categories {
-		if c.Tag != "" {
-			tagsByKind[c.Kind] = append(tagsByKind[c.Kind], c.Tag)
-		}
-	}
-	key := func(it MemoryItemSummary) string {
-		for _, tag := range tagsByKind[it.Kind] {
-			if slices.Contains(it.Tags, tag) {
-				return it.Kind + "|" + tag
-			}
-		}
-		return it.Kind
-	}
+	keyer := categoryKeyer(categories)
+	key := func(it MemoryItemSummary) string { return keyer(it.Kind, it.Tags) }
 	all, _ := s.ListSummary("", "", "", 1<<30)
 	totalsByKind = make(map[string]int, 16)
 	totalsByCategory = make(map[string]int, 16)
@@ -1049,6 +1037,26 @@ func (s *MemoryStore) ListSummaryPerCategory(perCategory int, categories []Categ
 		items = append(items, it)
 	}
 	return items, total, totalsByKind, totalsByCategory
+}
+
+// categoryKeyer returns an item's display category key (ADR-035, the UI's
+// categoryOf order): "kind|tag" for the first tagged category of its kind whose
+// tag it carries, else its kind.
+func categoryKeyer(categories []CategoryConfig) func(kind string, tags []string) string {
+	tagsByKind := make(map[string][]string)
+	for _, c := range categories {
+		if c.Tag != "" {
+			tagsByKind[c.Kind] = append(tagsByKind[c.Kind], c.Tag)
+		}
+	}
+	return func(kind string, tags []string) string {
+		for _, tag := range tagsByKind[kind] {
+			if slices.Contains(tags, tag) {
+				return kind + "|" + tag
+			}
+		}
+		return kind
+	}
 }
 
 // FilterItems returns the active items of a subject and kind (empty matches
