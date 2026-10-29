@@ -97,7 +97,7 @@ func defEndSession(pendingHangup *atomic.Bool, hangup chan struct{}) voiceToolDe
 	return voiceToolDef{
 		decl: &genai.FunctionDeclaration{
 			Name:        "end_session",
-			Description: "End the voice session and hang up. Call this when the user says goodbye, thanks and ends the conversation, or explicitly asks to hang up or stop. ALWAYS speak one brief, warm goodbye out loud FIRST, then call this as your last action — it hangs up at once, so say nothing after it. Never end the session silently.",
+			Description: "End the voice session and hang up. Call this when the user says goodbye, thanks and ends the conversation, or explicitly asks to hang up or stop. Before you say goodbye, save this conversation's episodic memory (save_memory, kind=episodic) if your instructions ask for one. Then ALWAYS speak one brief, warm goodbye out loud FIRST, then call this as your last action — it hangs up at once, so say nothing after it. Never end the session silently.",
 		},
 		handler: func(_ context.Context, _ map[string]any) (string, error) {
 			pendingHangup.Store(true)
