@@ -525,6 +525,9 @@ export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, 
     })
 
     const points = itemSeeds(filteredItems, width, height)
+    // Each node's synapse lines, filled where the lines are drawn below and read
+    // by the cell hover handlers (no selector built from an item id).
+    const linesByNode = new Map<string, SVGLineElement[]>()
     const delaunay = Delaunay.from(points)
     const voronoi = delaunay.voronoi([0, 0, width, height])
 
@@ -550,6 +553,12 @@ export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, 
         .attr("cursor", "pointer")
         .on("mouseenter", function (ev: MouseEvent) {
           d3.select(this).attr("fill-opacity", 0.72).attr("stroke", "rgba(255,255,255,0.6)")
+          linesByNode.get(item.id)?.forEach(line => {
+            d3.select(line)
+              .attr("stroke-opacity", line.getAttribute("data-hover-opacity"))
+              .attr("stroke-width", line.getAttribute("data-hover-width"))
+              .attr("filter", line.getAttribute("data-glow"))
+          })
           const rect = svgRef.current!.getBoundingClientRect()
           setTooltip({ item, x: ev.clientX - rect.left, y: ev.clientY - rect.top })
           ev.stopPropagation()
@@ -562,6 +571,12 @@ export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, 
           d3.select(this)
             .attr("fill-opacity", baseOpacity)
             .attr("stroke", isNews ? color : "rgba(255,255,255,0.22)")
+          linesByNode.get(item.id)?.forEach(line => {
+            d3.select(line)
+              .attr("stroke-opacity", line.getAttribute("data-rest-opacity"))
+              .attr("stroke-width", line.getAttribute("data-rest-width"))
+              .attr("filter", null)
+          })
           setTooltip(null)
         })
         .on("click", (ev: MouseEvent) => {
@@ -672,7 +687,7 @@ export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, 
         .text(showKindLabels ? `${count} ${count === 1 ? "item" : "items"}` : String(count))
     }
 
-    // Synapses — faint lines between nodes that share at least one tag
+    // Synapses — faint lines between nodes that share at least two tags
     const synapseGroup = g.append("g").attr("pointer-events", "none")
     for (let i = 0; i < filteredItems.length; i++) {
       const tagsI = new Set(filteredItems[i].tags ?? [])
@@ -685,7 +700,11 @@ export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, 
         const [x2, y2] = points[j]
         const dist = Math.hypot(x2 - x1, y2 - y1)
         if (dist > Math.min(width, height) * 0.55) continue  // skip very long cross-graph edges
+        // Every line is drawn; at rest it is thin and faint without a glow, so a
+        // dense store does not bury the regions, and a node's lines take the
+        // full style while the pointer is on it (the cell handlers above).
         const opacity = Math.min(0.35, 0.10 + shared * 0.08)
+        const restOpacity = Math.min(0.12, 0.03 + shared * 0.025)
         const colorI = catOf(filteredItems[i]).color
         const gradId = `syn-${i}-${j}`
         const grad = defs.append("linearGradient").attr("id", gradId)
@@ -693,12 +712,24 @@ export function MemoryGraph({ className, query, highlightIds, hitKinds, hitKey, 
           .attr("gradientUnits", "userSpaceOnUse")
         grad.append("stop").attr("offset", "0%").attr("stop-color", colorI)
         grad.append("stop").attr("offset", "100%").attr("stop-color", catOf(filteredItems[j]).color)
-        synapseGroup.append("line")
+        const line = synapseGroup.append("line")
           .attr("x1", x1).attr("y1", y1).attr("x2", x2).attr("y2", y2)
           .attr("stroke", `url(#${gradId})`)
-          .attr("stroke-width", 1 + shared * 0.4)
-          .attr("stroke-opacity", opacity)
-          .attr("filter", `drop-shadow(0 0 3px ${colorI}66)`)
+          .attr("stroke-width", 0.6 + shared * 0.25)
+          .attr("stroke-opacity", restOpacity)
+          .attr("data-a", filteredItems[i].id)
+          .attr("data-b", filteredItems[j].id)
+          .attr("data-rest-opacity", restOpacity)
+          .attr("data-rest-width", 0.6 + shared * 0.25)
+          .attr("data-hover-opacity", opacity)
+          .attr("data-hover-width", 1 + shared * 0.4)
+          .attr("data-glow", `drop-shadow(0 0 3px ${colorI}66)`)
+          .node()!
+        for (const id of [filteredItems[i].id, filteredItems[j].id]) {
+          const list = linesByNode.get(id)
+          if (list) list.push(line)
+          else linesByNode.set(id, [line])
+        }
       }
     }
 

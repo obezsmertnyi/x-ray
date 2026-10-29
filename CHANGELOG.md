@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- The graph's tag lines no longer bury its regions in a dense store. Every line is still drawn, but at rest it is thin and faint without a glow; the lines of the node under the pointer take the full style until the pointer leaves.
+
 ## [2.4.4] - 2026-10-29
 
 ### Fixed
