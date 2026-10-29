@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -565,6 +566,80 @@ func TestServer_MemorySummary_NoAgentNote(t *testing.T) {
 	for _, it := range resp.Items {
 		assert.NotEqual(t, "private", it.Scope)
 	}
+}
+
+// A kind split by tag into several ui.categories (ADR-035) gets the graph's
+// per-kind cap for each category, and a true count for each: before, the
+// categories shared one cap, so the first tag in id order filled it, and each
+// region was labelled with the whole kind's count.
+func TestServer_MemorySummary_PerCategory(t *testing.T) {
+	seed := func(s *Server) {
+		for i := range 30 {
+			s.memory.Upsert(t.Context(), fmt.Sprintf("a-%02d", i), "policy", "public", "A", "a", "", "", "", nil, []string{"area:a"}) //nolint:errcheck
+			s.memory.Upsert(t.Context(), fmt.Sprintf("b-%02d", i), "policy", "public", "B", "b", "", "", "", nil, []string{"area:b"}) //nolint:errcheck
+		}
+		for i := range 3 {
+			s.memory.Upsert(t.Context(), fmt.Sprintf("c-%02d", i), "policy", "public", "C", "c", "", "", "", nil, nil) //nolint:errcheck
+		}
+	}
+	type summary struct {
+		Items            []MemoryItemSummary `json:"items"`
+		TotalsByKind     map[string]int      `json:"totalsByKind"`
+		TotalsByCategory map[string]int      `json:"totalsByCategory"`
+	}
+	get := func(s *Server) (summary, map[string]int) {
+		w := authedDo(t, s.Handler(), "GET", "/v1/memory/summary?perKind=25", nil)
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp summary
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		drawn := map[string]int{}
+		for _, it := range resp.Items {
+			tag := "none"
+			if len(it.Tags) > 0 {
+				tag = it.Tags[0]
+			}
+			drawn[tag]++
+		}
+		return resp, drawn
+	}
+
+	mem := NewMemoryStore()
+	cw := NewConfigWatcher(mem)
+	s := NewServer(zerolog.Nop(), mem, nil, GitHubOAuthConfig{}, AzureOAuthConfig{}, "", 0, cw)
+	cw.update(&mcell.MemoryCell{
+		ObjectMeta: metav1.ObjectMeta{Name: SystemConfigCRName},
+		Spec: mcell.MemoryCellSpec{
+			Kind: "system_configuration",
+			UI: &mcell.UIConfig{Categories: []mcell.CategoryConfig{
+				{Kind: "policy", Tag: "area:a", Label: "A"},
+				{Kind: "policy", Tag: "area:b", Label: "B"},
+				{Kind: "policy", Label: "Other policies"},
+			}},
+		},
+	})
+	seed(s)
+	resp, drawn := get(s)
+	assert.Equal(t, map[string]int{"area:a": 25, "area:b": 25, "none": 3}, drawn, "each category gets the cap")
+	assert.Equal(t, map[string]int{"policy|area:a": 30, "policy|area:b": 30, "policy": 3}, resp.TotalsByCategory)
+	assert.Equal(t, map[string]int{"policy": 63}, resp.TotalsByKind)
+
+	// Without tagged categories the cap and the counts stay per kind.
+	plain := newTestServer(t)
+	seed(plain)
+	resp, _ = get(plain)
+	assert.Len(t, resp.Items, 25, "one cap for the kind")
+	assert.Equal(t, map[string]int{"policy": 63}, resp.TotalsByCategory)
+	assert.Equal(t, map[string]int{"policy": 63}, resp.TotalsByKind)
+}
+
+// An item carrying the tags of two categories of its kind belongs to the first
+// in ui.categories order, as the UI's categoryOf resolves it.
+func TestMemoryStore_ListSummaryPerCategory_FirstCategoryWins(t *testing.T) {
+	mem := NewMemoryStore()
+	mem.Upsert(t.Context(), "both", "policy", "public", "Both", "x", "", "", "", nil, []string{"area:b", "area:a"}) //nolint:errcheck
+	categories := []CategoryConfig{{Kind: "policy", Tag: "area:a"}, {Kind: "policy", Tag: "area:b"}}
+	_, _, _, totals := mem.ListSummaryPerCategory(25, categories)
+	assert.Equal(t, map[string]int{"policy|area:a": 1}, totals)
 }
 
 func TestServer_MemoryGet_AgentNote_Returns404(t *testing.T) {

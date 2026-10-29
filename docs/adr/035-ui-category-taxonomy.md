@@ -49,7 +49,9 @@ A single source of truth, `ui/lib/category-config.ts`, defines a
   Projects and Team — which share a kind — occupy distinct radial sectors
   (the six categories are spaced 60° apart; see the Voronoi fix in 1.18.9).
 
-No backend change: the cells already carry the tags. Privacy is unaffected —
+No backend change: the cells already carry the tags (since then the graph preview's
+cap and its counts are per category on the server, so a kind split by tag is capped
+and counted per category: `/v1/memory/summary` `totalsByCategory`). Privacy is unaffected —
 Notes are private (`scope`-gated, served via `/v1/user/notes`), orthogonal to the
 category mapping (ADR-037).
 

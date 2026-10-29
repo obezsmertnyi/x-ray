@@ -374,7 +374,7 @@ function normalizeImage(item: MemoryItem): MemoryItem {
 
 export async function fetchMemorySummary(
   params: { kind?: string; scope?: string; subject?: string; top?: number; perKind?: number } = {}
-): Promise<{ items: MemoryItemSummary[]; total: number; totalsByKind: Record<string, number> }> {
+): Promise<{ items: MemoryItemSummary[]; total: number; totalsByKind: Record<string, number>; totalsByCategory: Record<string, number> }> {
   const qs = new URLSearchParams()
   if (params.kind) qs.set("kind", params.kind)
   if (params.scope) qs.set("scope", params.scope)
@@ -385,7 +385,7 @@ export async function fetchMemorySummary(
   const r = await apiFetch(url)
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   const d = await r.json()
-  return { items: d.items ?? [], total: d.total ?? 0, totalsByKind: d.totalsByKind ?? {} }
+  return { items: d.items ?? [], total: d.total ?? 0, totalsByKind: d.totalsByKind ?? {}, totalsByCategory: d.totalsByCategory ?? {} }
 }
 
 export async function fetchMemorySearch(q: string, limit = 50, perKind?: number, kind?: string): Promise<MemoryItem[]> {

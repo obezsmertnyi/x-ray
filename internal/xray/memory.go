@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1001,24 +1002,53 @@ func (s *MemoryStore) summaryOf(it memstore.Item) MemoryItemSummary {
 // rows of any one kind, and the true total of each kind: the UI shows those as
 // the real category counts, independent of the per-kind render cap.
 func (s *MemoryStore) ListSummaryPerKind(perKind int) (items []MemoryItemSummary, total int, totalsByKind map[string]int) {
+	items, total, totalsByKind, _ = s.ListSummaryPerCategory(perKind, nil)
+	return items, total, totalsByKind
+}
+
+// ListSummaryPerCategory is ListSummaryPerKind with the cap and the totals taken
+// per display category (ADR-035): a category configured with a tag narrows its
+// kind, so a kind split by tag into several categories gets perCategory rows for
+// each of them instead of perCategory rows to share. An item's category key is
+// "kind|tag" for the first tag of its kind's tagged categories it carries (the
+// UI's categoryOf order), else its kind. Without tagged categories this is
+// ListSummaryPerKind.
+func (s *MemoryStore) ListSummaryPerCategory(perCategory int, categories []CategoryConfig) (items []MemoryItemSummary, total int, totalsByKind, totalsByCategory map[string]int) {
+	tagsByKind := make(map[string][]string)
+	for _, c := range categories {
+		if c.Tag != "" {
+			tagsByKind[c.Kind] = append(tagsByKind[c.Kind], c.Tag)
+		}
+	}
+	key := func(it MemoryItemSummary) string {
+		for _, tag := range tagsByKind[it.Kind] {
+			if slices.Contains(it.Tags, tag) {
+				return it.Kind + "|" + tag
+			}
+		}
+		return it.Kind
+	}
 	all, _ := s.ListSummary("", "", "", 1<<30)
 	totalsByKind = make(map[string]int, 16)
+	totalsByCategory = make(map[string]int, 16)
 	for _, it := range all {
 		totalsByKind[it.Kind]++
+		totalsByCategory[key(it)]++
 	}
 	total = len(all)
-	if perKind <= 0 {
-		return all, total, totalsByKind
+	if perCategory <= 0 {
+		return all, total, totalsByKind, totalsByCategory
 	}
-	perKindCount := make(map[string]int, 16)
+	perCategoryCount := make(map[string]int, 16)
 	for _, it := range all {
-		if perKindCount[it.Kind] >= perKind {
+		k := key(it)
+		if perCategoryCount[k] >= perCategory {
 			continue
 		}
-		perKindCount[it.Kind]++
+		perCategoryCount[k]++
 		items = append(items, it)
 	}
-	return items, total, totalsByKind
+	return items, total, totalsByKind, totalsByCategory
 }
 
 // FilterItems returns the active items of a subject and kind (empty matches
