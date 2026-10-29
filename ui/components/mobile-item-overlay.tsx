@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback } from "react"
+import { useEffect, useRef, useCallback } from "react"
 import { ArrowLeft, Clock, Tag } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -24,28 +24,65 @@ interface Props {
 }
 
 const CLOSE_THRESHOLD = 70
+const SLIDE_MS = 200
+const SLIDE = `transform ${SLIDE_MS}ms cubic-bezier(0.4,0,0.2,1)`
 
 // Full-screen detail view layered above the mobile swipe shell. Swipe right to
 // close (back); vertical drags scroll the content natively. Closing returns to
 // the same tab/scroll spot.
+//
+// It slides in from the right and slides out the same way, whether closed by
+// the swipe or the back button. The drag is written straight to the element's
+// style once per animation frame, as in mobile-swipe-layout.tsx: drag state in
+// React re-rendered the item's markdown on every touchmove.
 export function MobileItemOverlay({ id, kind, onClose }: Props) {
   const { item, loading } = useMemoryItem(id, kind)
-  const [dragX, setDragX] = useState(0)
-  const [dragging, setDragging] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const dragX = useRef(0)
+  const dragFrame = useRef<number | null>(null)
+  const closing = useRef(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const start = useRef<{ x: number; y: number } | null>(null)
   const axis = useRef<"h" | "v" | null>(null)
 
-  // Lock body scroll while the overlay is open.
+  // Lock body scroll while the overlay is open; on unmount, drop a pending
+  // close or drag frame.
   useEffect(() => {
     const prev = document.body.style.overflow
     document.body.style.overflow = "hidden"
-    return () => { document.body.style.overflow = prev }
+    return () => {
+      document.body.style.overflow = prev
+      if (closeTimer.current) clearTimeout(closeTimer.current)
+      if (dragFrame.current !== null) cancelAnimationFrame(dragFrame.current)
+    }
   }, [])
 
+  const place = useCallback((transform: string, animate: boolean) => {
+    const el = root.current
+    if (!el) return
+    el.style.transition = animate ? SLIDE : "none"
+    el.style.transform = transform
+  }, [])
+
+  // Slide in: the first render sits off-screen to the right; reading the
+  // layout commits that position before the move to 0 starts the transition.
+  useEffect(() => {
+    void root.current?.offsetWidth
+    place("translateX(0px)", true)
+  }, [place])
+
+  const close = useCallback(() => {
+    if (closing.current) return
+    closing.current = true
+    place("translateX(100%)", true)
+    closeTimer.current = setTimeout(onClose, SLIDE_MS)
+  }, [onClose, place])
+
   const onTouchStart = useCallback((e: React.TouchEvent) => {
+    if (closing.current) return  // a touch during the slide-out must not bring it back
     start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
     axis.current = null
-    setDragging(true)
+    dragX.current = 0
   }, [])
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
@@ -56,37 +93,52 @@ export function MobileItemOverlay({ id, kind, onClose }: Props) {
       axis.current = Math.abs(dx) > Math.abs(dy) ? "h" : "v"
     }
     // Only a rightward swipe (back) follows; vertical passes through to scroll.
-    if (axis.current === "h") setDragX(Math.max(0, dx))
-  }, [])
+    if (axis.current !== "h") return
+    dragX.current = Math.max(0, dx)
+    if (dragFrame.current === null) {
+      dragFrame.current = requestAnimationFrame(() => {
+        dragFrame.current = null
+        place(`translateX(${dragX.current}px)`, false)
+      })
+    }
+  }, [place])
 
   const onTouchEnd = useCallback(() => {
-    if (axis.current === "h" && dragX >= CLOSE_THRESHOLD) {
-      onClose()
-      return
+    if (dragFrame.current !== null) {
+      cancelAnimationFrame(dragFrame.current)
+      dragFrame.current = null
     }
-    setDragX(0)
-    setDragging(false)
+    if (axis.current === "h") {
+      if (dragX.current >= CLOSE_THRESHOLD) close()
+      else place("translateX(0px)", true)
+    }
+    dragX.current = 0
     start.current = null
     axis.current = null
-  }, [dragX, onClose])
+  }, [close, place])
+
+  // An interrupted gesture snaps back instead of closing.
+  const onTouchCancel = useCallback(() => {
+    dragX.current = 0
+    onTouchEnd()
+  }, [onTouchEnd])
 
   const label = item ? categoryOf(item).label : ""
 
   return (
     <div
+      ref={root}
       className="fixed inset-0 z-50 flex flex-col bg-background overflow-hidden"
-      style={{
-        transform: dragX ? `translateX(${dragX}px)` : undefined,
-        transition: dragging ? "none" : "transform 0.2s cubic-bezier(0.4,0,0.2,1)",
-      }}
+      style={{ transform: "translateX(100%)", transition: SLIDE, willChange: "transform" }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchCancel}
     >
       <div className="flex-none flex items-center gap-3 px-4 pt-3 pb-2 border-b border-border/40 bg-background/95 backdrop-blur-md z-10"
            style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))" }}>
         <button
-          onClick={onClose}
+          onClick={close}
           className="flex items-center gap-1.5 text-sm text-muted-foreground active:text-foreground transition-colors -ml-1 px-1 py-1"
         >
           <ArrowLeft className="h-4 w-4" /> {label || "Back"}
