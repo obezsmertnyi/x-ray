@@ -3,6 +3,7 @@ package xray
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -174,7 +175,7 @@ func TestBuildVoiceTools_EndSessionAlwaysPresent(t *testing.T) {
 	s := newTestStore()
 	var ph atomic.Bool
 
-	tools := buildVoiceTools(s, nil, "", "", "", nil, []string{}, 0, zerolog.Nop(), func() []string { return nil }, &ph, &atomic.Bool{}, make(chan struct{}))
+	tools := buildVoiceTools(s, nil, "", "", "", nil, []string{}, nil, 0, zerolog.Nop(), func() []string { return nil }, &ph, &atomic.Bool{}, make(chan struct{}))
 	assert.Contains(t, toolNames(tools), "end_session")
 }
 
@@ -182,7 +183,7 @@ func TestBuildVoiceTools_AllowlistFiltersTools(t *testing.T) {
 	s := newTestStore()
 	var ph atomic.Bool
 
-	names := toolNames(buildVoiceTools(s, nil, "", "", "", nil, []string{"search_memory"}, 0, zerolog.Nop(), func() []string { return nil }, &ph, &atomic.Bool{}, make(chan struct{})))
+	names := toolNames(buildVoiceTools(s, nil, "", "", "", nil, []string{"search_memory"}, nil, 0, zerolog.Nop(), func() []string { return nil }, &ph, &atomic.Bool{}, make(chan struct{})))
 	assert.Contains(t, names, "search_memory")
 	assert.Contains(t, names, "end_session")
 	assert.NotContains(t, names, "get_memory")
@@ -194,7 +195,7 @@ func TestBuildVoiceTools_EmptyAllowlistMeansAll(t *testing.T) {
 	var ph atomic.Bool
 
 	// No user — session-scoped tools (fetch_memory, recent_memory) are absent.
-	names := toolNames(buildVoiceTools(s, nil, "", "", "", nil, nil, 0, zerolog.Nop(), func() []string { return nil }, &ph, &atomic.Bool{}, make(chan struct{})))
+	names := toolNames(buildVoiceTools(s, nil, "", "", "", nil, nil, nil, 0, zerolog.Nop(), func() []string { return nil }, &ph, &atomic.Bool{}, make(chan struct{})))
 	assert.Contains(t, names, "search_memory")
 	assert.Contains(t, names, "get_memory")
 	assert.Contains(t, names, "list_memory")
@@ -206,12 +207,12 @@ func TestBuildVoiceTools_SessionToolsRequireUser(t *testing.T) {
 	var ph atomic.Bool
 
 	// No user — session-scoped tools must be absent.
-	noUserNames := toolNames(buildVoiceTools(s, nil, "", "", "", nil, nil, 0, zerolog.Nop(), func() []string { return nil }, &ph, &atomic.Bool{}, make(chan struct{})))
+	noUserNames := toolNames(buildVoiceTools(s, nil, "", "", "", nil, nil, nil, 0, zerolog.Nop(), func() []string { return nil }, &ph, &atomic.Bool{}, make(chan struct{})))
 	assert.NotContains(t, noUserNames, "fetch_memory")
 	assert.NotContains(t, noUserNames, "recent_memory")
 
 	// With user — session-scoped tools must be present.
-	withUserNames := toolNames(buildVoiceTools(s, nil, "", "alice", "github:1", nil, nil, 0, zerolog.Nop(), func() []string { return nil }, &ph, &atomic.Bool{}, make(chan struct{})))
+	withUserNames := toolNames(buildVoiceTools(s, nil, "", "alice", "github:1", nil, nil, nil, 0, zerolog.Nop(), func() []string { return nil }, &ph, &atomic.Bool{}, make(chan struct{})))
 	assert.Contains(t, withUserNames, "fetch_memory")
 	assert.Contains(t, withUserNames, "recent_memory")
 }
@@ -220,7 +221,7 @@ func TestBuildVoiceTools_WriteGateMatchesUserHashNotName(t *testing.T) {
 	s := newTestStore()
 	var ph atomic.Bool
 	build := func(username, userHash string, writeAllowed []string) []string {
-		return toolNames(buildVoiceTools(s, nil, "", username, userHash, writeAllowed, nil, 0, zerolog.Nop(), func() []string { return nil }, &ph, &atomic.Bool{}, make(chan struct{})))
+		return toolNames(buildVoiceTools(s, nil, "", username, userHash, writeAllowed, nil, nil, 0, zerolog.Nop(), func() []string { return nil }, &ph, &atomic.Bool{}, make(chan struct{})))
 	}
 
 	// The allowlist gates the write tool (upsert_memory) by userHash. A matching
@@ -592,4 +593,69 @@ func TestVoiceSession_SendIsSafeConcurrently(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestGetMemory_RegionsCountDocumentsAndSections(t *testing.T) {
+	s := newTestStore()
+	put := func(kind, scope, title, subject string, tags ...string) {
+		_, msg := s.Upsert(t.Context(), "", kind, scope, title, "body of "+title, subject, "", "", nil, tags)
+		require.Empty(t, msg)
+	}
+	put("policy", "public", "X Policy: Purpose", "docs", "area:a", "doc:x")
+	put("policy", "public", "X Policy: Scope", "docs", "area:a", "doc:x")
+	put("policy", "public", "Y Policy", "docs", "area:a", "doc:y")
+	put("policy", "public", "Z Policy", "docs", "area:b", "doc:z")
+	put("policy", "public", "Loose", "docs")
+	put("note", "public", "Summary", "docs")
+	put("note", "private", "Mine", stableUserID("github:1"))
+	categories := []CategoryConfig{
+		{Kind: "policy", Tag: "area:a", Label: "A"},
+		{Kind: "policy", Tag: "area:b", Label: "B"},
+		{Kind: "note", Label: "Notes"},
+	}
+
+	out, err := defGetMemory(s, categories).handler(t.Context(), nil)
+	require.NoError(t, err)
+	var got struct {
+		Regions []memoryRegion `json:"regions"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &got))
+	assert.Equal(t, []memoryRegion{
+		{Name: "A", Kind: "policy", Tag: "area:a", Items: 3, Documents: 2, Sections: 3, Titles: []string{"X Policy", "Y Policy"}},
+		{Name: "B", Kind: "policy", Tag: "area:b", Items: 1, Documents: 1, Sections: 1, Titles: []string{"Z Policy"}},
+		{Name: "Notes", Kind: "note", Items: 1},
+		{Name: "policy", Kind: "policy", Items: 1},
+	}, got.Regions)
+}
+
+func TestGetMemory_RegionTitlesAreCapped(t *testing.T) {
+	s := newTestStore()
+	for i := range maxRegionTitles + 5 {
+		_, msg := s.Upsert(t.Context(), "", "policy", "public", fmt.Sprintf("Doc %03d", i), "body", "docs", "", "", nil, []string{fmt.Sprintf("doc:d%03d", i)})
+		require.Empty(t, msg)
+	}
+	regions := memoryRegions(s.AllItems(""), nil)
+	require.Len(t, regions, 1)
+	assert.Equal(t, maxRegionTitles+5, regions[0].Documents)
+	assert.Len(t, regions[0].Titles, maxRegionTitles)
+}
+
+func TestDocumentTitle(t *testing.T) {
+	for _, c := range []struct {
+		titles []string
+		want   string
+	}{
+		{[]string{"Access Control Policy: Purpose", "Access Control Policy: Scope"}, "Access Control Policy"},
+		{[]string{"P: Procedure A", "P: Procedure B"}, "P"},
+		{[]string{"Doc", "Doc: Annex"}, "Doc"},
+		{[]string{"Annex: A: x", "Annex: A: y"}, "Annex: A"},
+		{[]string{"Політика: Мета", "Політика: Межі"}, "Політика"},
+		{[]string{"Alpha", "Beta"}, "x"},
+		{[]string{"Doc: Scope", "Doc: Scope 2"}, "Doc"},
+		{[]string{"Policy A: x", "Policy B: y"}, "x"},
+		{[]string{"Only Section Doc"}, "Only Section Doc"},
+		{[]string{"Doc: Scope", "Doc: Scope"}, "Doc: Scope"},
+	} {
+		assert.Equal(t, c.want, documentTitle(c.titles, "doc:x"), c.titles)
+	}
 }

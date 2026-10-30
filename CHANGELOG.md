@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-10-30
+
+### Added
+- **Regions for voice.** The voice tool `get_memory` also returns the graph's regions, the display categories of ADR-035 in their configured order: per region its item count, and for cells carrying a `doc:<id>` tag (the sections of one source document) the number of documents and sections and up to 50 document titles. A voice agent can now say how many documents there are and what a region holds; it used to count cells by kind, sections included, or count a capped `list_memory` page.
+
 ### Fixed
 - The server sets the Go memory limit to 80% of the container's memory limit at start (cgroup v2, then v1) unless `GOMEMLIMIT` is set. Without one the collector waits for the heap to double, which in a 256Mi pod can be past the limit, so the pod was killed before a collection ran.
 - The tree-sitter parsers a code-graph parse, update or re-index creates are freed when it is done. They were never closed, so every one leaked a native parser per language it touched.

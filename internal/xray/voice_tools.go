@@ -45,10 +45,10 @@ const nativeKindGloss = "'active_concern' (live/current issues), " +
 // username is the human-readable login (display only).
 // userHash is the stable, non-spoofable SHA-256[:16] of the SSO ID; it is the
 // match key for the writeAllowed admin list (display names are spoofable).
-func buildVoiceTools(memory *MemoryStore, syncer *CellSyncer, namespace, username, userHash string, writeAllowed []string, enabledTools []string, headroomLimit int, logger zerolog.Logger, getPinnedIDs func() []string, pendingHangup *atomic.Bool, _ *atomic.Bool, hangup chan struct{}) []voiceToolDef {
+func buildVoiceTools(memory *MemoryStore, syncer *CellSyncer, namespace, username, userHash string, writeAllowed []string, enabledTools []string, categories []CategoryConfig, headroomLimit int, logger zerolog.Logger, getPinnedIDs func() []string, pendingHangup *atomic.Bool, _ *atomic.Bool, hangup chan struct{}) []voiceToolDef {
 	canWrite := userHash != "" && slices.Contains(writeAllowed, userHash)
 	all := []voiceToolDef{
-		defGetMemory(memory),
+		defGetMemory(memory, categories),
 		defListMemory(memory, userHash),
 		defSearchMemory(memory, userHash, headroomLimit, logger),
 		defSaveMemory(memory, syncer, namespace, userHash),
@@ -108,11 +108,11 @@ func defEndSession(pendingHangup *atomic.Bool, hangup chan struct{}) voiceToolDe
 	}
 }
 
-func defGetMemory(memory *MemoryStore) voiceToolDef {
+func defGetMemory(memory *MemoryStore, categories []CategoryConfig) voiceToolDef {
 	return voiceToolDef{
 		decl: &genai.FunctionDeclaration{
 			Name:        "get_memory",
-			Description: "Get an orientation summary of stored memory: item counts by kind.",
+			Description: "Get an orientation summary of stored memory: item counts by kind. It also returns the graph's regions with their item counts and, for items cut from a source document (doc: tag), the number of documents and sections and the document titles. Answer how-many and what-is-in-a-region questions from it: list_memory and search_memory return only some items.",
 		},
 		handler: func(_ context.Context, _ map[string]any) (string, error) {
 			items := memory.AllItems("")
@@ -123,10 +123,121 @@ func defGetMemory(memory *MemoryStore) voiceToolDef {
 			b, _ := json.Marshal(map[string]any{
 				"total":   len(items),
 				"by_kind": counts,
+				"regions": memoryRegions(items, categories),
 			})
 			return string(b), nil
 		},
 	}
+}
+
+// documentTagPrefix marks the source document a cell was cut from: the cells
+// that share a doc:<id> tag are the sections of one document.
+const documentTagPrefix = "doc:"
+
+// maxRegionTitles bounds the titles get_memory names per region (ADR-018: lean
+// voice results); documents still counts them all.
+const maxRegionTitles = 50
+
+type memoryRegion struct {
+	Name      string   `json:"name"`
+	Kind      string   `json:"kind"`
+	Tag       string   `json:"tag,omitempty"`
+	Items     int      `json:"items"`
+	Documents int      `json:"documents,omitempty"`
+	Sections  int      `json:"sections,omitempty"`
+	Titles    []string `json:"titles,omitempty"`
+}
+
+// memoryRegions groups items into the graph's display categories (ADR-035), in
+// the configured order, with the kinds no category names after them. A region
+// counts its items, and the documents and sections among them by doc: tag.
+func memoryRegions(items []*MemoryItem, categories []CategoryConfig) []memoryRegion {
+	key := categoryKeyer(categories)
+	names := make(map[string]string, len(categories))
+	var order []string
+	for _, c := range categories {
+		k := c.Kind
+		if c.Tag != "" {
+			k += "|" + c.Tag
+		}
+		if _, ok := names[k]; !ok {
+			names[k] = c.Label
+			order = append(order, k)
+		}
+	}
+	type group struct {
+		items int
+		docs  map[string][]string
+	}
+	groups := map[string]*group{}
+	var extra []string
+	for _, it := range items {
+		if it.Kind == "system_configuration" {
+			continue
+		}
+		k := key(it.Kind, it.Tags)
+		g := groups[k]
+		if g == nil {
+			g = &group{docs: map[string][]string{}}
+			groups[k] = g
+			if _, ok := names[k]; !ok {
+				extra = append(extra, k)
+			}
+		}
+		g.items++
+		for _, tag := range it.Tags {
+			if strings.HasPrefix(tag, documentTagPrefix) {
+				g.docs[tag] = append(g.docs[tag], it.Title)
+				break
+			}
+		}
+	}
+	slices.Sort(extra)
+	out := make([]memoryRegion, 0, len(groups))
+	for _, k := range append(order, extra...) {
+		g := groups[k]
+		if g == nil {
+			continue
+		}
+		kind, tag, _ := strings.Cut(k, "|")
+		r := memoryRegion{Name: names[k], Kind: kind, Tag: tag, Items: g.items, Documents: len(g.docs)}
+		if r.Name == "" {
+			r.Name = kind
+		}
+		for id, titles := range g.docs {
+			r.Sections += len(titles)
+			r.Titles = append(r.Titles, documentTitle(titles, id))
+		}
+		slices.Sort(r.Titles)
+		if len(r.Titles) > maxRegionTitles {
+			r.Titles = r.Titles[:maxRegionTitles]
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// documentTitle names a document from its section titles, which the loaders
+// write as "<document>: <heading>" or as the document title alone: the longest
+// prefix of the first title, cut at a ": ", that every title equals or starts
+// with followed by ": ". id (the doc: tag) is the fallback.
+func documentTitle(titles []string, id string) string {
+	first := titles[0]
+	for end := len(first); end > 0; {
+		p := first[:end]
+		ok := true
+		for _, t := range titles {
+			if t != p && !strings.HasPrefix(t, p+": ") {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return p
+		}
+		end = strings.LastIndex(p, ": ")
+	}
+	return strings.TrimPrefix(id, documentTagPrefix)
 }
 
 func defListMemory(memory *MemoryStore, userHash string) voiceToolDef {
