@@ -1150,6 +1150,8 @@ func (s *Store) Restore(items []Item) {
 		s.cells[item.ID] = item.Clone()
 		s.indexLocked(item)
 	}
+	s.kw.compact()
+	s.vocab.compact()
 	s.dirty()
 	s.signal()
 	s.mu.Unlock()

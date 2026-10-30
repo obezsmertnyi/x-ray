@@ -5,6 +5,11 @@
 ### Added
 - **Regions for voice.** The voice tool `get_memory` also returns the graph's regions, the display categories of ADR-035 in their configured order: per region its item count, and for cells carrying a `doc:<id>` tag (the sections of one source document) the number of documents and sections and up to 50 document titles. A voice agent can now say how many documents there are and what a region holds; it used to count cells by kind, sections included, or count a capped `list_memory` page.
 
+## [2.5.0] - 2026-10-30
+
+### Changed
+- A memory store holds about half the heap per item after `Restore`: 48 KB down to 25 KB per item on a 2,000-item benchmark (`BenchmarkRestoreHeap`). The vocabulary index kept one Go map per word or adjacent-word join, nearly always for a single item; each entry is now a sorted `[]uint32` over interned item ids, and joins are held in one map instead of two. The lexical cache keeps each word as a 12-byte span into text it already retains, where a string header and an 8-byte length cost 24. Posting-list slack is released once `Restore` finishes. Search results and speed are unchanged.
+
 ## [2.4.4] - 2026-10-29
 
 ### Fixed
