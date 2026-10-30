@@ -51,6 +51,8 @@ func init() {
 }
 
 func main() {
+	limitMemoryFromCgroup()
+
 	// Mode dispatch. `xray graph <sub>` runs the code graph (parse,
 	// snapshot, serve retrieval — see graph.go); bare `xray` runs the server:
 	// API, controller, voice and MCP. One binary, two modes.
@@ -336,6 +338,9 @@ func main() {
 			Scheme: sc,
 			Cache: cache.Options{
 				DefaultNamespaces: map[string]cache.Config{namespace: {}},
+				// managedFields are server-side-apply bookkeeping this process never
+				// reads, and a large share of each cached object.
+				DefaultTransform: cache.TransformStripManagedFields(),
 			},
 			// Disable built-in metrics and health servers — we run our own HTTP server.
 			Metrics:                metricsserver.Options{BindAddress: "0"},
