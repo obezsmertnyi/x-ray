@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- The graph lights the right region and stays readable in a store whose kinds are split by tag (ADR-035). A recall pulsed the kind's bare region, or none, because hit events carried only ids and kinds; they now also carry each shared item's tags (`tags`, parallel to `itemIds`; private items get none, and a store without tags sends the event unchanged), and the graph resolves the region with them. The tag lines buried the regions in a dense store; every line is still drawn, but at rest thin and faint without a glow, and the lines of the node under the pointer take the full style until the pointer leaves.
+
 ## [2.6.1] - 2026-10-30
 
 ### Fixed
