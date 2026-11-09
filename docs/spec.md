@@ -303,8 +303,21 @@ Each session reads the `system_configuration` cell at its start, so edits apply 
 | maxUserDailyAudioTokens | Per-user audio token cap per UTC day; overrides the flag when non-zero |
 | maxItemContentChars | Bound on each memory item's content in tool results |
 | affectiveDialog, proactiveAudio | Gemini Live options, native-audio models only |
+| sessionResumption | Resume the upstream session on a GoAway or a dropped connection; overrides `--voice-session-resumption` when set |
+| idleTimeoutSeconds | End a session after that many seconds without speech, text, model output or a tool call (at least 60); overrides `--voice-idle-timeout` when non-zero |
+| contextTriggerTokens, contextTargetTokens | Context window compression (5,000-128,000 trigger; target 0 = half the trigger); override the `--voice-context-*-tokens` flags when non-zero |
 
 The voice tools are `search_memory`, `list_memory`, `get_memory`, `fetch_memory`, `recent_memory`, `upsert_memory`, `save_memory`, `delete_memory` and `end_session`. Voice writes are private to the user. In voice, `get_memory` also returns the graph's regions with their item counts and, for items tagged `doc:<id>`, documents, sections and up to 50 titles (ADR-035). When a map is loaded the graph tools are available to the model too.
+
+### Session longevity
+
+Gemini Live recycles its connection about every 10 minutes and sends a GoAway 30–60 s before. The server logs each GoAway with the time left and records it on the session span. With `--voice-session-resumption` (off by default) the session asks for resumption handles and keeps the latest resumable one. After a GoAway it reconnects at once when nobody is speaking, or, while the user is speaking or the model is answering or running a tool, once that turn has ended and the handle that follows it has arrived; on a dropped connection it reconnects instead of ending. The browser WebSocket stays open and the server restores the conversation from the handle. On Vertex the session also asks for the index of the last client message each handle covers, keeps the messages sent since (at most 2048 messages or 320,000 bytes, about 10 s of microphone audio; past that the oldest microphone frames are dropped; other messages stay, up to 256 of them or 1 MiB), and sends them again on the new connection before anything new: from the first microphone frame with speech, at the pace it was spoken. No microphone audio goes to Gemini faster than real time (silent frames that fall behind are dropped), since Vertex ends a resumed stream that gets audio faster than real time with 429. Each drop gets one attempt: a rejected handle, or a resumed session that drops before it delivers anything, ends the session. Each reconnect is logged with its cause.
+
+With `--voice-context-trigger-tokens` (off by default; 5,000-128,000) the session asks Gemini Live for context window compression: once the context passes the trigger the server drops the oldest turns down to `--voice-context-target-tokens` (0 = half the trigger), keeping the system instruction, so a long session neither hits the context limit nor grows its per-turn cost without bound.
+
+With `--voice-idle-timeout` (off by default, at least one minute) a session ends after that long without speech from the user (silent microphone frames do not count), text, model output, a tool call or a tool response: the model is asked, as at the daily limit, to save the session memory, say goodbye and call `end_session`, and the server closes the session 45 s later if it has not. The end is final: speech after the farewell starts no extension, the user opens a new session. Only one farewell is sent, idle or daily-limit. With resumption on nothing else ends a session left open, so set both.
+
+When a session ends for any reason, the browser gets `done` and then a WebSocket close frame, 1000 for a normal end and 1011 when the voice model connection failed.
 
 ### Limits
 
@@ -493,7 +506,7 @@ Flags set the baseline. The configuration cell and the chart's `values.yaml` ove
 | Search | `--search-lexical-shortcircuit`, `--search-recall-shaping` true, `--memory-write-dedup` true, `--headroom-content-limit`, `--mcp-search-memory-max-limit`, `--mcp-list-memory-max-limit`, `--mcp-recent-memory-max-limit` |
 | Maps | `--mental-maps-dir`, `--mental-maps-snapshot-key`, `--registry-pull-secret`, `--mental-maps-route-fanout` 1, `--mental-maps-ttl-min` 0 |
 | Graph server | `xray graph serve-snapshots`: `-snapshot-dir`, `-addr` 127.0.0.1:8085, `-writable`, `-memory-map` session, `-memory-ttl` 7d, `-skills-map` skills, `-graph-ttl-min` 0, `-route-fanout` 1, `-embedding-endpoint` http://localhost:8090, `-embedding-model` nomic, `-embedding-dims` 256, `-embedding-max-input-chars` 8192, `-embedding-max-input-tokens` 0, `-snapshot-key`, `-auth-token-file`, `-allowed-hosts`, `-allowed-origins`. `serve` takes `-repo` and listens on 127.0.0.1:8084 |
-| Voice | `--gemini-api-key`, `--voice-model`, `--voice-location`, `--voice-name`, `--user-daily-audio-token-limit`, `--max-concurrent-voice`, `--voice-max-output-tokens`, `--voice-affective-dialog`, `--voice-proactive-audio` |
+| Voice | `--gemini-api-key`, `--voice-model`, `--voice-location`, `--voice-name`, `--user-daily-audio-token-limit`, `--max-concurrent-voice`, `--voice-max-output-tokens`, `--voice-affective-dialog`, `--voice-proactive-audio`, `--voice-session-resumption`, `--voice-idle-timeout`, `--voice-context-trigger-tokens`, `--voice-context-target-tokens` |
 | Sign-in and MCP | `--public-url`, `--github-client-id`, `--github-client-secret`, `--github-org`, `--github-team`, `--azure-client-id`, `--azure-client-secret`, `--azure-tenant-id`, `--google-client-id`, `--google-client-secret`, `--google-domain`, `--ui-callback-origins`, `--mcp-token-secret`, `--mcp-oauth`, `--mcp-resource-url`, `--mcp-token-ttl` 15m, `--dev` |
 | Retention | `--episodic-ttl` 168h, `--retention-sweep-interval` 1h |
 | Requests | `--max-request-bytes` 1 MiB, `--trusted-proxy-hops` 0 |
@@ -511,6 +524,9 @@ Flags set the baseline. The configuration cell and the chart's `values.yaml` ove
 | dev | Adds `--dev`: sign-in off, any origin accepted. For a first look through a port-forward only; without it the server refuses to start until a sign-in method and `--public-url` are set |
 | github.secretName, azure.secretName, google.secretName | The Secret holding the sign-in client id and secret. Empty by default, so a fresh install needs no Secret of its own besides the MCP token |
 | imagePullSecrets | Secrets for pulling the images from a private registry |
+| voice.sessionResumption | Adds `--voice-session-resumption`. Off by default; `voice.systemConfig.sessionResumption` sets the per-instance override in the configuration cell |
+| voice.idleTimeout | Adds `--voice-idle-timeout` (a Go duration, at least 1m). Off by default; `voice.systemConfig.idleTimeoutSeconds` sets the per-instance override |
+| voice.contextTriggerTokens, voice.contextTargetTokens | Add `--voice-context-trigger-tokens` / `--voice-context-target-tokens`. Off by default; `voice.systemConfig.contextTriggerTokens` / `contextTargetTokens` set the per-instance override |
 | ingress, httpRoute | An Ingress, or a Gateway API route, in front of the server |
 
 The chart installs the `MemoryCell` CRD from its `crds` directory on first install. Helm does not upgrade CRDs, so apply a changed CRD by hand.

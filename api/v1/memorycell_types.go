@@ -238,6 +238,45 @@ type VoiceSessionConfig struct {
 	// --voice-proactive-audio flag; non-nil overrides it.
 	// +optional
 	ProactiveAudio *bool `json:"proactiveAudio,omitempty"`
+
+	// SessionResumption keeps a voice session alive across Gemini Live connection
+	// recycles: the server reconnects upstream with the latest resumption handle
+	// on a GoAway or a dropped connection, and the browser stays connected. nil
+	// means "not set in CR" — the caller falls back to the
+	// --voice-session-resumption flag; non-nil overrides it. See ADR-039.
+	// +optional
+	SessionResumption *bool `json:"sessionResumption,omitempty"`
+
+	// IdleTimeoutSeconds ends a voice session after this many seconds with no
+	// speech from the user (silent microphone frames do not count), no text, no
+	// model output and no tool call: the model saves the session memory, says
+	// goodbye and ends it, as at the daily limit. Values under 60 are raised to
+	// 60. With session resumption on nothing else ends a forgotten session. 0
+	// means "not set in CR" — the caller falls back to the --voice-idle-timeout
+	// flag.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=86400
+	// +optional
+	IdleTimeoutSeconds int64 `json:"idleTimeoutSeconds,omitempty"`
+
+	// ContextTriggerTokens turns on Gemini Live context window compression: once
+	// the session's context passes this many tokens the server drops the oldest
+	// turns, keeping the system instruction, so a long session neither hits the
+	// context limit nor grows the per-turn cost without bound. 5,000 to 128,000;
+	// 0 means "not set in CR" — the caller falls back to the
+	// --voice-context-trigger-tokens flag. See ADR-039.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=128000
+	// +optional
+	ContextTriggerTokens int `json:"contextTriggerTokens,omitempty"`
+
+	// ContextTargetTokens is how far compression cuts the context down; 0 means
+	// "not set in CR" (the --voice-context-target-tokens flag, and when that is 0
+	// too, the server's default of half the trigger). See ADR-039.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=128000
+	// +optional
+	ContextTargetTokens int `json:"contextTargetTokens,omitempty"`
 }
 
 // MemoryCellStatus reports reconciler observations.

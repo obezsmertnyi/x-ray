@@ -309,6 +309,25 @@ spec:
                       "not set in CR" — the caller falls back to the --voice-affective-dialog
                       flag; non-nil overrides it.
                     type: boolean
+                  contextTargetTokens:
+                    description: |-
+                      ContextTargetTokens is how far compression cuts the context down; 0 means
+                      "not set in CR" (the --voice-context-target-tokens flag, and when that is 0
+                      too, the server's default of half the trigger). See ADR-039.
+                    maximum: 128000
+                    minimum: 0
+                    type: integer
+                  contextTriggerTokens:
+                    description: |-
+                      ContextTriggerTokens turns on Gemini Live context window compression: once
+                      the session's context passes this many tokens the server drops the oldest
+                      turns, keeping the system instruction, so a long session neither hits the
+                      context limit nor grows the per-turn cost without bound. 5,000 to 128,000;
+                      0 means "not set in CR" — the caller falls back to the
+                      --voice-context-trigger-tokens flag. See ADR-039.
+                    maximum: 128000
+                    minimum: 0
+                    type: integer
                   enabledTools:
                     description: EnabledTools is the allowlist of voice tool names.
                       Empty means all tools.
@@ -319,6 +338,19 @@ spec:
                     description: Greeting is the opening line sent as the first user-turn
                       after connect.
                     type: string
+                  idleTimeoutSeconds:
+                    description: |-
+                      IdleTimeoutSeconds ends a voice session after this many seconds with no
+                      speech from the user (silent microphone frames do not count), no text, no
+                      model output and no tool call: the model saves the session memory, says
+                      goodbye and ends it, as at the daily limit. Values under 60 are raised to
+                      60. With session resumption on nothing else ends a forgotten session. 0
+                      means "not set in CR" — the caller falls back to the --voice-idle-timeout
+                      flag.
+                    format: int64
+                    maximum: 86400
+                    minimum: 0
+                    type: integer
                   maxItemContentChars:
                     description: |-
                       MaxItemContentChars caps each search-result item's content (after
@@ -341,6 +373,14 @@ spec:
                       silent on out-of-context / background speech instead of replying. Native-
                       audio only. nil means "not set in CR" — the caller falls back to the
                       --voice-proactive-audio flag; non-nil overrides it.
+                    type: boolean
+                  sessionResumption:
+                    description: |-
+                      SessionResumption keeps a voice session alive across Gemini Live connection
+                      recycles: the server reconnects upstream with the latest resumption handle
+                      on a GoAway or a dropped connection, and the browser stays connected. nil
+                      means "not set in CR" — the caller falls back to the
+                      --voice-session-resumption flag; non-nil overrides it. See ADR-039.
                     type: boolean
                   systemPrompt:
                     description: |-

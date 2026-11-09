@@ -43,6 +43,18 @@ spec:
     {{- if hasKey .Values.voice.systemConfig "proactiveAudio" }}
     proactiveAudio: {{ .Values.voice.systemConfig.proactiveAudio }}
     {{- end }}
+    {{- if hasKey .Values.voice.systemConfig "sessionResumption" }}
+    sessionResumption: {{ .Values.voice.systemConfig.sessionResumption }}
+    {{- end }}
+    {{- if .Values.voice.systemConfig.idleTimeoutSeconds }}
+    idleTimeoutSeconds: {{ .Values.voice.systemConfig.idleTimeoutSeconds }}
+    {{- end }}
+    {{- if .Values.voice.systemConfig.contextTriggerTokens }}
+    contextTriggerTokens: {{ .Values.voice.systemConfig.contextTriggerTokens }}
+    {{- end }}
+    {{- if .Values.voice.systemConfig.contextTargetTokens }}
+    contextTargetTokens: {{ .Values.voice.systemConfig.contextTargetTokens }}
+    {{- end }}
   {{- if .Values.voice.systemConfig.mcpServers }}
   mcp:
     servers:

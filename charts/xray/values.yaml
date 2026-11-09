@@ -269,6 +269,22 @@ voice:
   # Proactive audio: the model may stay silent on out-of-context / background
   # speech instead of replying to everything. Native-audio only.
   proactiveAudio: true
+  # Session resumption (ADR-039): on a Gemini Live GoAway (the ~10-minute
+  # connection recycle) or a dropped connection, reconnect upstream with the
+  # latest resumption handle and keep the browser connected. true adds
+  # --voice-session-resumption to the container args. Off by default.
+  # sessionResumption: false
+  # End a session after this long without speech, text, model output or a tool
+  # call (a Go duration, at least 1m): the model saves the session memory and
+  # says goodbye first. Adds --voice-idle-timeout. Off by default; set it with
+  # sessionResumption, which keeps a forgotten session alive.
+  # idleTimeout: 3m
+  # Context window compression (ADR-039): once a session's context passes the
+  # trigger (5000-128000 tokens) the server drops the oldest turns, keeping the
+  # system instruction. Adds --voice-context-trigger-tokens; the target (0 = half
+  # the trigger) adds --voice-context-target-tokens. Off by default.
+  # contextTriggerTokens: 32000
+  # contextTargetTokens: 0
 
   # system_configuration MemoryCell — voice session config managed by Helm.
   # Changing any field here and running helm upgrade will patch the CR in-cluster.
@@ -299,6 +315,17 @@ voice:
     # / --voice-proactive-audio flag defaults; set explicitly to override per session.
     # affectiveDialog: true
     # proactiveAudio: true
+    # Session resumption per instance (ADR-039). Omit (unset) to use the
+    # --voice-session-resumption flag; set explicitly to override it.
+    # sessionResumption: true
+    # End a voice session after this many seconds without speech or model output
+    # (the model saves the session memory and says goodbye first). 0/unset = use
+    # the --voice-idle-timeout flag. With session resumption on, set it: nothing
+    # else ends a forgotten session.
+    # idleTimeoutSeconds: 180
+    # Context window compression per instance (ADR-039); 0/unset = use the flags.
+    # contextTriggerTokens: 32000
+    # contextTargetTokens: 0
     # Remote MCP servers wired into voice sessions. Empty = none.
     # NOTE: the former `xray-code` remote MCP service was REMOVED — the code-graph
     # tools (search_graph, search_graph_docs, get_graph_node,

@@ -1,11 +1,25 @@
 {{/*
-xray container args — a plain list driven entirely from .Values.args.
-No conditionals: add/remove/reorder flags by editing values.yaml.
+xray container args — a plain list driven from .Values.args: add/remove/reorder
+flags by editing values.yaml. The only conditionals are the switches below
+(dev, voice.sessionResumption, voice.idleTimeout, voice.contextTriggerTokens,
+voice.contextTargetTokens), each appending one flag.
 */}}
 {{- define "xray.containerArgs" -}}
 {{- toYaml .Values.args }}
 {{- if .Values.dev }}
 - --dev
+{{- end }}
+{{- if .Values.voice.sessionResumption }}
+- --voice-session-resumption
+{{- end }}
+{{- if .Values.voice.idleTimeout }}
+- --voice-idle-timeout={{ .Values.voice.idleTimeout }}
+{{- end }}
+{{- if .Values.voice.contextTriggerTokens }}
+- --voice-context-trigger-tokens={{ .Values.voice.contextTriggerTokens }}
+{{- end }}
+{{- if .Values.voice.contextTargetTokens }}
+- --voice-context-target-tokens={{ .Values.voice.contextTargetTokens }}
 {{- end }}
 {{- end -}}
 
