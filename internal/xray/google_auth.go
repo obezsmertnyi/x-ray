@@ -1,16 +1,13 @@
 package xray
 
 import (
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -38,63 +35,22 @@ var googleHTTP = &http.Client{Timeout: 10 * time.Second}
 type googleAuth struct {
 	cfg      GoogleOAuthConfig
 	tokenURL string
-	statesMu sync.Mutex
-	states   map[string]loginState
 }
 
 func newGoogleAuth(cfg GoogleOAuthConfig) *googleAuth {
-	g := &googleAuth{cfg: cfg, tokenURL: googleTokenURL, states: make(map[string]loginState)}
-	go g.pruneStates()
-	return g
-}
-
-func (g *googleAuth) pruneStates() {
-	for range time.Tick(5 * time.Minute) {
-		now := time.Now()
-		g.statesMu.Lock()
-		for k, st := range g.states {
-			if now.After(st.expiresAt) {
-				delete(g.states, k)
-			}
-		}
-		g.statesMu.Unlock()
-	}
-}
-
-func (g *googleAuth) newState(uiOrigin string) string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand failed: " + err.Error())
-	}
-	state := hex.EncodeToString(b)
-	g.statesMu.Lock()
-	g.states[state] = loginState{expiresAt: time.Now().Add(10 * time.Minute), uiOrigin: uiOrigin}
-	g.statesMu.Unlock()
-	return state
-}
-
-func (g *googleAuth) consumeState(state string) (loginState, bool) {
-	g.statesMu.Lock()
-	defer g.statesMu.Unlock()
-	st, ok := g.states[state]
-	if !ok {
-		return loginState{}, false
-	}
-	delete(g.states, state)
-	return st, time.Now().Before(st.expiresAt)
+	return &googleAuth{cfg: cfg, tokenURL: googleTokenURL}
 }
 
 func (g *googleAuth) callbackURL() string { return g.cfg.PublicURL + "/v1/auth/google/callback" }
 
 func (g *googleAuth) handleLogin(w http.ResponseWriter, r *http.Request) {
-	state := g.newState(resolveUIOrigin(r.URL.Query().Get("ui"), g.cfg.UICallbackOrigins))
-	setStateCookie(w, BasePath(g.cfg.PublicURL), state)
+	flow := startLoginFlow(w, BasePath(g.cfg.PublicURL), "google", resolveUIOrigin(r.URL.Query().Get("ui"), g.cfg.UICallbackOrigins))
 	q := url.Values{
 		"client_id":     {g.cfg.ClientID},
 		"response_type": {"code"},
 		"redirect_uri":  {g.callbackURL()},
 		"scope":         {"openid email profile"},
-		"state":         {state},
+		"state":         {flow.State},
 	}
 	// hd only narrows the account picker; the callback enforces the domain.
 	if g.cfg.Domain != "" {
@@ -107,13 +63,8 @@ func (g *googleAuth) handleCallback(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	code := r.URL.Query().Get("code")
 
-	clearStateCookie(w, BasePath(g.cfg.PublicURL))
-	if !stateCookieMatches(r, state) {
-		http.Error(w, "invalid state", http.StatusBadRequest)
-		return
-	}
-	st, stateOK := g.consumeState(state)
-	if !stateOK {
+	flow, ok := finishLoginFlow(w, r, BasePath(g.cfg.PublicURL), "google", state)
+	if !ok {
 		http.Error(w, "invalid state", http.StatusBadRequest)
 		return
 	}
@@ -140,7 +91,7 @@ func (g *googleAuth) handleCallback(w http.ResponseWriter, r *http.Request) {
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, uiCallbackRedirect(st.uiOrigin, token, BasePath(g.cfg.PublicURL)), http.StatusFound)
+	http.Redirect(w, r, uiCallbackRedirect(flow.UIOrigin, token, BasePath(g.cfg.PublicURL)), http.StatusFound)
 }
 
 // exchangeCode trades the authorization code for the ID token.

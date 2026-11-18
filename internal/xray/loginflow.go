@@ -1,0 +1,137 @@
+package xray
+
+import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"time"
+)
+
+// An in-flight sign-in lives in the browser, not in a replica: the state, the PKCE
+// verifier and the OIDC nonce travel in one encrypted cookie, so the provider's
+// callback can land on any replica (ADR-068). The key is derived from the OAuth
+// client secret every replica reads, the way session hashing is (ADR-047). Replay
+// is stopped by the cookie being cleared at the callback, by the provider's code
+// being single-use and by PKCE binding that code to the verifier in this cookie.
+
+// loginFlowTTL bounds how long a sign-in may take between the redirect to the
+// provider and its callback.
+const loginFlowTTL = 10 * time.Minute
+
+// loginFlow is one sign-in in progress.
+type loginFlow struct {
+	Provider string `json:"p"`
+	State    string `json:"s"`
+	// UIOrigin is the allowlisted origin to hand the session token to once the
+	// callback completes. Empty — the default — redirects to "/" on this host,
+	// which is the same-origin case where the cookie is the whole credential.
+	UIOrigin string `json:"u,omitempty"`
+	Expires  int64  `json:"e"`
+}
+
+// processLoginKey is used only when no OAuth client secret is set (local dev), where
+// there is one process and no key to share.
+var processLoginKey = func() [32]byte {
+	var k [32]byte
+	if _, err := rand.Read(k[:]); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
+	return k
+}()
+
+// loginAEAD returns AES-256-GCM keyed by a derivation of the session key, domain-
+// separated from its other uses (token HMAC, identity sealing).
+func loginAEAD() cipher.AEAD {
+	sessions.mu.Lock()
+	base := sessions.hmacKey
+	sessions.mu.Unlock()
+	key := processLoginKey
+	if len(base) > 0 {
+		key = sha256.Sum256(append(append([]byte(nil), base...), []byte("login-flow")...))
+	}
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		panic("aes: " + err.Error()) // unreachable: the key is always 32 bytes
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		panic("gcm: " + err.Error())
+	}
+	return gcm
+}
+
+// loginFlowAAD binds a sealed flow to its purpose, format version and provider.
+func loginFlowAAD(provider string) []byte { return []byte("xray-login-flow-v1:" + provider) }
+
+func randomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
+	return hex.EncodeToString(b)
+}
+
+// startLoginFlow begins a sign-in with provider: it mints the state and sets the
+// cookie that carries the flow. base is BasePath(PublicURL).
+func startLoginFlow(w http.ResponseWriter, base, provider, uiOrigin string) loginFlow {
+	f := loginFlow{Provider: provider, State: randomHex(16), UIOrigin: uiOrigin, Expires: time.Now().Add(loginFlowTTL).Unix()}
+	plain, err := json.Marshal(f)
+	if err != nil {
+		panic("login flow: " + err.Error()) // unreachable: plain struct of strings and an int
+	}
+	gcm := loginAEAD()
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
+	sealed := gcm.Seal(nonce, nonce, plain, loginFlowAAD(provider))
+	// Secure+HttpOnly+SameSite=Lax matches the session cookie; Lax is required so
+	// the cookie survives the cross-site redirect back from the provider.
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthStateCookie,
+		Value:    base64.RawURLEncoding.EncodeToString(sealed),
+		Path:     base + "/v1/auth/",
+		MaxAge:   int(loginFlowTTL.Seconds()),
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return f
+}
+
+// finishLoginFlow ends a sign-in at provider's callback: it clears the cookie and
+// returns the flow when the cookie opens under this deployment's key, was issued
+// for this provider, has not expired and carries queryState.
+func finishLoginFlow(w http.ResponseWriter, r *http.Request, base, provider, queryState string) (loginFlow, bool) {
+	clearStateCookie(w, base)
+	if queryState == "" {
+		return loginFlow{}, false
+	}
+	c, err := r.Cookie(oauthStateCookie)
+	if err != nil {
+		return loginFlow{}, false
+	}
+	sealed, err := base64.RawURLEncoding.DecodeString(c.Value)
+	gcm := loginAEAD()
+	if err != nil || len(sealed) < gcm.NonceSize() {
+		return loginFlow{}, false
+	}
+	plain, err := gcm.Open(nil, sealed[:gcm.NonceSize()], sealed[gcm.NonceSize():], loginFlowAAD(provider))
+	if err != nil {
+		return loginFlow{}, false
+	}
+	var f loginFlow
+	if json.Unmarshal(plain, &f) != nil || f.Provider != provider || time.Now().Unix() >= f.Expires {
+		return loginFlow{}, false
+	}
+	if subtle.ConstantTimeCompare([]byte(f.State), []byte(queryState)) != 1 {
+		return loginFlow{}, false
+	}
+	return f, true
+}

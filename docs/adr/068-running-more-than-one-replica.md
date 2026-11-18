@@ -68,6 +68,13 @@ copy for these has the same behaviour pinned.
      what the persisted totals already hold and counts nothing twice.
    - **Logins and OAuth client registrations.** A login on one replica reaches the others as the same sealed row
      the cell holds, a logout as a drop, so the next request may land on any replica without waiting for a flush.
+   - **A sign-in in progress does not ride the mesh: it rides the browser.** The state and the UI origin of a
+     Google, GitHub or Entra sign-in travel in one cookie sealed with AES-GCM under a key derived from the OAuth
+     client secret, so the provider's callback may land on any replica. It was a map in each replica under a
+     per-process signing key, and a callback on another replica failed with `invalid state`. The key is
+     SHA-256 of the ADR-047 session key and `login-flow`; the AEAD's associated data names the format version and the
+     provider. Rotating any provider's client secret, and a roll from a release without the cookie, drop the sign-ins
+     in flight (400, the user signs in again).
    - **MCP authorization codes.** `/authorize` answers once the peers acknowledge the code, because the client's
      next call is `/token` and the Service may route it to any replica; a redeemed code is dropped everywhere.
    With the mesh carrying everything the stats flush held, the flush is leader-only: the leader writes the

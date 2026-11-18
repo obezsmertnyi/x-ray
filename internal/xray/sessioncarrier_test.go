@@ -1,6 +1,8 @@
 package xray
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -232,18 +234,29 @@ func TestRequireSession_AcceptsWebSocketSubprotocolCarrier(t *testing.T) {
 // The default deployment must be untouched by the hand-off: with no allowlist
 // configured, a login carrying ?ui= still lands on this server's own "/" and
 // no token is ever put in a URL.
+// loginFlowOf opens the flow a login just put in its cookie.
+func loginFlowOf(t *testing.T, rec *httptest.ResponseRecorder, provider string) loginFlow {
+	t.Helper()
+	cookies := rec.Result().Cookies()
+	require.Len(t, cookies, 1)
+	sealed, err := base64.RawURLEncoding.DecodeString(cookies[0].Value)
+	require.NoError(t, err)
+	gcm := loginAEAD()
+	plain, err := gcm.Open(nil, sealed[:gcm.NonceSize()], sealed[gcm.NonceSize():], loginFlowAAD(provider))
+	require.NoError(t, err)
+	var f loginFlow
+	require.NoError(t, json.Unmarshal(plain, &f))
+	return f
+}
+
 func TestGitHubLogin_UIHandoffOffByDefault(t *testing.T) {
 	g := newGitHubAuth(GitHubOAuthConfig{ClientID: "gh", PublicURL: "https://xray.example.com"})
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/auth/github?ui=https://ui.example.com", nil)
-	g.handleLogin(httptest.NewRecorder(), r)
+	rec := httptest.NewRecorder()
+	g.handleLogin(rec, r)
 
-	g.statesMu.Lock()
-	defer g.statesMu.Unlock()
-	require.Len(t, g.states, 1)
-	for _, st := range g.states {
-		assert.Empty(t, st.uiOrigin, "an unconfigured allowlist must not bind any UI origin to the login")
-	}
+	assert.Empty(t, loginFlowOf(t, rec, "github").UIOrigin, "an unconfigured allowlist must not bind any UI origin to the login")
 }
 
 func TestGitHubLogin_UIHandoffBindsAllowlistedOrigin(t *testing.T) {
@@ -255,16 +268,9 @@ func TestGitHubLogin_UIHandoffBindsAllowlistedOrigin(t *testing.T) {
 
 	t.Run("allowlisted origin is bound", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodGet, "/v1/auth/github?ui=https://ui.example.com", nil)
-		g.handleLogin(httptest.NewRecorder(), r)
-		g.statesMu.Lock()
-		defer g.statesMu.Unlock()
-		var found bool
-		for _, st := range g.states {
-			if st.uiOrigin == "https://ui.example.com" {
-				found = true
-			}
-		}
-		assert.True(t, found)
+		rec := httptest.NewRecorder()
+		g.handleLogin(rec, r)
+		assert.Equal(t, "https://ui.example.com", loginFlowOf(t, rec, "github").UIOrigin)
 	})
 
 	// The rejection happens at login, not at the callback: an unapproved origin
@@ -276,13 +282,9 @@ func TestGitHubLogin_UIHandoffBindsAllowlistedOrigin(t *testing.T) {
 			UICallbackOrigins: []string{"https://ui.example.com"},
 		})
 		r := httptest.NewRequest(http.MethodGet, "/v1/auth/github?ui=https://evil.example.com", nil)
-		g2.handleLogin(httptest.NewRecorder(), r)
-		g2.statesMu.Lock()
-		defer g2.statesMu.Unlock()
-		require.Len(t, g2.states, 1)
-		for _, st := range g2.states {
-			assert.Empty(t, st.uiOrigin)
-		}
+		rec := httptest.NewRecorder()
+		g2.handleLogin(rec, r)
+		assert.Empty(t, loginFlowOf(t, rec, "github").UIOrigin)
 	})
 }
 

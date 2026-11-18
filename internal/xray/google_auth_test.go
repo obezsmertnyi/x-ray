@@ -226,11 +226,30 @@ func TestGoogleCallback_RefusesForeignState(t *testing.T) {
 	assert.Nil(t, sessionCookie(w))
 }
 
+// A callback can not be replayed: the browser drops the flow cookie at the first
+// one, and a replay that still carries it is refused because the provider's code is
+// single-use (the token endpoint here, like Google's, accepts each code once).
 func TestGoogleCallback_StateIsSingleUse(t *testing.T) {
-	g, state, cookies := googleLogin(t, tokenReply(t, googleTestToken(t, workspaceClaims())), "")
-	require.Equal(t, http.StatusFound, googleReturn(g, state, cookies).Code)
+	used := false
+	token := googleTestToken(t, workspaceClaims())
+	g, state, cookies := googleLogin(t, func(w http.ResponseWriter, r *http.Request) {
+		if used {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"invalid_grant","error_description":"code already used"}`)) //nolint:errcheck
+			return
+		}
+		used = true
+		tokenReply(t, token)(w, r)
+	}, "")
+	first := googleReturn(g, state, cookies)
+	require.Equal(t, http.StatusFound, first.Code)
+	var cleared bool
+	for _, c := range first.Result().Cookies() {
+		cleared = cleared || (c.Name == oauthStateCookie && c.MaxAge < 0)
+	}
+	assert.True(t, cleared, "the first callback clears the flow cookie")
 	again := googleReturn(g, state, cookies)
-	assert.Equal(t, http.StatusBadRequest, again.Code)
+	assert.NotEqual(t, http.StatusFound, again.Code)
 	assert.Nil(t, sessionCookie(again))
 }
 
@@ -291,4 +310,31 @@ func TestServer_GoogleRoutesAndProvider(t *testing.T) {
 
 func TestMCPSigningSeed_UnchangedWithoutGoogle(t *testing.T) {
 	assert.Equal(t, mcpSigningSeed("gh", "az"), mcpSigningSeed("gh", "az", ""))
+}
+
+// End to end across replicas: a sign-in started on one instance completes on another
+// that holds the same OAuth client secret, and fails on one that does not.
+func TestGoogleCallback_CompletesOnAnotherReplica(t *testing.T) {
+	token := googleTestToken(t, workspaceClaims())
+	withSessionKey(t, "secret-derived-session-key", func() {
+		_, state, cookies := googleLogin(t, tokenReply(t, token), "")
+		tokenSrv := httptest.NewServer(tokenReply(t, token))
+		t.Cleanup(tokenSrv.Close)
+		other := newTestGoogleAuth(tokenSrv.URL)
+		w := googleReturn(other, state, cookies)
+		require.Equal(t, http.StatusFound, w.Code, w.Body.String())
+		assert.NotNil(t, sessionCookie(w))
+	})
+}
+
+func TestGoogleCallback_RefusesAnExpiredSignIn(t *testing.T) {
+	f := loginFlow{Provider: "google", State: "s1", Expires: time.Now().Add(-time.Second).Unix()}
+	plain, err := json.Marshal(f)
+	require.NoError(t, err)
+	gcm := loginAEAD()
+	nonce := make([]byte, gcm.NonceSize())
+	cookie := &http.Cookie{Name: oauthStateCookie, Value: base64.RawURLEncoding.EncodeToString(gcm.Seal(nonce, nonce, plain, loginFlowAAD("google")))}
+	w := googleReturn(newTestGoogleAuth(""), "s1", []*http.Cookie{cookie})
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Nil(t, sessionCookie(w))
 }

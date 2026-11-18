@@ -1,16 +1,12 @@
 package xray
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
-	"time"
 )
 
 // GitHubOAuthConfig holds the OAuth App credentials and org restriction.
@@ -27,56 +23,11 @@ type GitHubOAuthConfig struct {
 }
 
 type githubAuth struct {
-	cfg      GitHubOAuthConfig
-	statesMu sync.Mutex
-	states   map[string]loginState // state → in-flight login
+	cfg GitHubOAuthConfig
 }
 
 func newGitHubAuth(cfg GitHubOAuthConfig) *githubAuth {
-	g := &githubAuth{
-		cfg:    cfg,
-		states: make(map[string]loginState),
-	}
-	go g.pruneStates()
-	return g
-}
-
-func (g *githubAuth) pruneStates() {
-	for range time.Tick(5 * time.Minute) {
-		now := time.Now()
-		g.statesMu.Lock()
-		for k, st := range g.states {
-			if now.After(st.expiresAt) {
-				delete(g.states, k)
-			}
-		}
-		g.statesMu.Unlock()
-	}
-}
-
-// newState mints a login state, remembering the (already validated) UI origin
-// the session token should be handed to when the callback completes.
-func (g *githubAuth) newState(uiOrigin string) string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand failed: " + err.Error())
-	}
-	state := hex.EncodeToString(b)
-	g.statesMu.Lock()
-	g.states[state] = loginState{expiresAt: time.Now().Add(10 * time.Minute), uiOrigin: uiOrigin}
-	g.statesMu.Unlock()
-	return state
-}
-
-func (g *githubAuth) consumeState(state string) (loginState, bool) {
-	g.statesMu.Lock()
-	defer g.statesMu.Unlock()
-	st, ok := g.states[state]
-	if !ok {
-		return loginState{}, false
-	}
-	delete(g.states, state)
-	return st, time.Now().Before(st.expiresAt)
+	return &githubAuth{cfg: cfg}
 }
 
 // handleLogin redirects the browser to GitHub's OAuth consent screen.
@@ -84,14 +35,13 @@ func (g *githubAuth) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// ?ui= asks for the session token to be handed to a UI on another origin.
 	// Resolved (and allowlist-checked) HERE rather than at the callback, so an
 	// unapproved origin is dropped before it is ever bound to a live login.
-	state := g.newState(resolveUIOrigin(r.URL.Query().Get("ui"), g.cfg.UICallbackOrigins))
-	setStateCookie(w, BasePath(g.cfg.PublicURL), state)
+	flow := startLoginFlow(w, BasePath(g.cfg.PublicURL), "github", resolveUIOrigin(r.URL.Query().Get("ui"), g.cfg.UICallbackOrigins))
 	callbackURL := g.cfg.PublicURL + "/v1/auth/github/callback"
 	authURL := fmt.Sprintf(
 		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=read:org&state=%s",
 		url.QueryEscape(g.cfg.ClientID),
 		url.QueryEscape(callbackURL),
-		url.QueryEscape(state),
+		url.QueryEscape(flow.State),
 	)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -103,16 +53,9 @@ func (g *githubAuth) handleCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 
 	// Bind the callback to the browser that started login: the query state must
-	// match the signed state cookie set in handleLogin. Defeats login-CSRF.
-	clearStateCookie(w, BasePath(g.cfg.PublicURL))
-	if !stateCookieMatches(r, state) {
-		http.Error(w, "invalid state", http.StatusBadRequest)
-		return
-	}
-
-	// Validate state — consume it atomically so it can't be replayed.
-	st, stateOK := g.consumeState(state)
-	if !stateOK {
+	// match the encrypted flow cookie set in handleLogin. Defeats login-CSRF.
+	flow, ok := finishLoginFlow(w, r, BasePath(g.cfg.PublicURL), "github", state)
+	if !ok {
 		http.Error(w, "invalid state", http.StatusBadRequest)
 		return
 	}
@@ -166,7 +109,7 @@ func (g *githubAuth) handleCallback(w http.ResponseWriter, r *http.Request) {
 	// Same-origin logins land on "/" and use the cookie just set. A login that
 	// asked for an allowlisted UI origin is bounced there with the token
 	// instead, because that host will never receive this cookie.
-	http.Redirect(w, r, uiCallbackRedirect(st.uiOrigin, token, BasePath(g.cfg.PublicURL)), http.StatusFound)
+	http.Redirect(w, r, uiCallbackRedirect(flow.UIOrigin, token, BasePath(g.cfg.PublicURL)), http.StatusFound)
 }
 
 // handleLogout clears the session cookie and invalidates the server-side session.

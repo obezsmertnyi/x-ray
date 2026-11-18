@@ -6,7 +6,6 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"net"
 	"net/http"
@@ -30,44 +29,10 @@ func stableUserID(raw string) string {
 // ─── OAuth state cookie (login CSRF protection) ─────────────────────────────────
 
 // oauthStateCookie is the HttpOnly cookie that binds an in-flight OAuth login to
-// the browser that started it. The callback requires the query `state` to match
-// this cookie, defeating login-CSRF / session-fixation where an attacker injects
-// their own authorization code into a victim's browser.
+// the browser that started it and carries it (loginflow.go). The callback requires
+// the query `state` to match this cookie, defeating login-CSRF / session-fixation
+// where an attacker injects their own authorization code into a victim's browser.
 const oauthStateCookie = "xray_oauth_state"
-
-// stateSigningKey is generated once per process. State values are short-lived
-// (10 min) and single-use, so a per-process key is sufficient — a restart simply
-// invalidates any login in flight, which is harmless.
-var stateSigningKey = func() []byte {
-	k := make([]byte, 32)
-	if _, err := rand.Read(k); err != nil {
-		panic("crypto/rand failed: " + err.Error())
-	}
-	return k
-}()
-
-// signState returns "<state>.<hex-hmac>" so the callback can verify the cookie
-// was issued by this server and not forged or tampered with.
-func signState(state string) string {
-	mac := hmac.New(sha256.New, stateSigningKey)
-	mac.Write([]byte(state))
-	return state + "." + hex.EncodeToString(mac.Sum(nil))
-}
-
-// setStateCookie issues the signed state cookie. Secure+HttpOnly+SameSite=Lax
-// matches the session cookie; Lax is required so the cookie survives the
-// cross-site redirect back from the OAuth provider. base is BasePath(PublicURL).
-func setStateCookie(w http.ResponseWriter, base, state string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     oauthStateCookie,
-		Value:    signState(state),
-		Path:     base + "/v1/auth/",
-		MaxAge:   600,
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-	})
-}
 
 // clearStateCookie expires the state cookie once the callback has consumed it.
 func clearStateCookie(w http.ResponseWriter, base string) {
@@ -79,31 +44,6 @@ func clearStateCookie(w http.ResponseWriter, base string) {
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
-}
-
-// stateCookieMatches reports whether the request carries a valid state cookie
-// that matches the given query state. Constant-time compares guard against both
-// signature- and value-oracle timing attacks.
-func stateCookieMatches(r *http.Request, queryState string) bool {
-	if queryState == "" {
-		return false
-	}
-	c, err := r.Cookie(oauthStateCookie)
-	if err != nil {
-		return false
-	}
-	state, sig, ok := strings.Cut(c.Value, ".")
-	if !ok {
-		return false
-	}
-	mac := hmac.New(sha256.New, stateSigningKey)
-	mac.Write([]byte(state))
-	want := mac.Sum(nil)
-	got, err := hex.DecodeString(sig)
-	if err != nil || subtle.ConstantTimeCompare(got, want) != 1 {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(state), []byte(queryState)) == 1
 }
 
 // ─── session store ────────────────────────────────────────────────────────────
@@ -634,15 +574,6 @@ func sessionFromRequest(r *http.Request) (username, userID string, ok bool) {
 }
 
 // ─── cross-origin UI login hand-off ───────────────────────────────────────────
-
-// loginState is the server-side half of an in-flight OAuth login.
-type loginState struct {
-	expiresAt time.Time
-	// uiOrigin is the allowlisted origin to hand the session token to once the
-	// callback completes. Empty — the default — redirects to "/" on this host,
-	// which is the same-origin case where the cookie is the whole credential.
-	uiOrigin string
-}
 
 // resolveUIOrigin validates a requested `?ui=` origin against the configured
 // allowlist and returns it, or "" to fall back to the same-origin redirect.

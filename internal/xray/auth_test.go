@@ -1,6 +1,8 @@
 package xray
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -308,13 +310,10 @@ func TestSessionStore_RestoredSessionsStaySnapshotted(t *testing.T) {
 	assert.True(t, ok, "a session passed through an unused replica still validates")
 }
 
-// ── OAuth state cookie ──────────────────────────────────────────────────────────
+// ── OAuth sign-in flow cookie (loginflow.go) ────────────────────────────────────
 
-// reqWithStateCookie issues a state cookie via setStateCookie, then builds a
-// callback request carrying that cookie — mirroring the real login→callback flow.
-func reqWithStateCookie(state string) *http.Request {
-	rec := httptest.NewRecorder()
-	setStateCookie(rec, "", state)
+// callbackWith builds a callback request carrying the cookies a login just set.
+func callbackWith(rec *httptest.ResponseRecorder) *http.Request {
 	r := httptest.NewRequest(http.MethodGet, "/v1/auth/github/callback", nil)
 	for _, c := range rec.Result().Cookies() {
 		r.AddCookie(c)
@@ -322,44 +321,115 @@ func reqWithStateCookie(state string) *http.Request {
 	return r
 }
 
-func TestStateCookie_MatchesRoundTrip(t *testing.T) {
-	r := reqWithStateCookie("abc123")
-	assert.True(t, stateCookieMatches(r, "abc123"), "cookie set for state must match the same query state")
+// withSessionKey runs f with the shared session key set as main.go sets it.
+func withSessionKey(t *testing.T, key string, f func()) {
+	t.Helper()
+	sessions.mu.Lock()
+	old := sessions.hmacKey
+	sessions.hmacKey = []byte(key)
+	sessions.mu.Unlock()
+	defer func() {
+		sessions.mu.Lock()
+		sessions.hmacKey = old
+		sessions.mu.Unlock()
+	}()
+	f()
 }
 
-func TestStateCookie_RejectsMismatchedQueryState(t *testing.T) {
-	r := reqWithStateCookie("abc123")
-	assert.False(t, stateCookieMatches(r, "different"), "query state not matching the cookie must be rejected (login CSRF)")
-}
-
-func TestStateCookie_RejectsMissingCookie(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/v1/auth/github/callback", nil)
-	assert.False(t, stateCookieMatches(r, "abc123"), "no cookie means no browser binding — reject")
-}
-
-func TestStateCookie_RejectsEmptyQueryState(t *testing.T) {
-	r := reqWithStateCookie("")
-	assert.False(t, stateCookieMatches(r, ""), "empty query state must always be rejected")
-}
-
-func TestStateCookie_RejectsTamperedSignature(t *testing.T) {
+func TestLoginFlow_RoundTrip(t *testing.T) {
 	rec := httptest.NewRecorder()
-	setStateCookie(rec, "", "abc123")
-	r := httptest.NewRequest(http.MethodGet, "/v1/auth/github/callback", nil)
-	// Forge a cookie with the right state value but a bogus signature.
-	r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: "abc123.deadbeef"})
-	assert.False(t, stateCookieMatches(r, "abc123"), "a tampered/forged signature must be rejected")
+	f := startLoginFlow(rec, "", "github", "https://ui.example")
+	got, ok := finishLoginFlow(httptest.NewRecorder(), callbackWith(rec), "", "github", f.State)
+	require.True(t, ok)
+	assert.Equal(t, "https://ui.example", got.UIOrigin)
 }
 
-func TestStateCookie_RejectsUnsignedValue(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/v1/auth/github/callback", nil)
-	r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: "abc123"})
-	assert.False(t, stateCookieMatches(r, "abc123"), "a value without a signature segment must be rejected")
+// The point of the cookie: a sign-in started on one replica finishes on another,
+// because every replica derives the key from the same OAuth client secret.
+func TestLoginFlow_FinishesOnAnotherReplicaWithTheSameSecret(t *testing.T) {
+	var rec *httptest.ResponseRecorder
+	var f loginFlow
+	withSessionKey(t, "shared-secret-derived", func() {
+		rec = httptest.NewRecorder()
+		f = startLoginFlow(rec, "/isms", "google", "")
+	})
+	withSessionKey(t, "shared-secret-derived", func() {
+		_, ok := finishLoginFlow(httptest.NewRecorder(), callbackWith(rec), "/isms", "google", f.State)
+		assert.True(t, ok, "a replica with the same secret opens the flow")
+	})
+	withSessionKey(t, "another-deployment", func() {
+		_, ok := finishLoginFlow(httptest.NewRecorder(), callbackWith(rec), "/isms", "google", f.State)
+		assert.False(t, ok, "a deployment with another secret cannot open it")
+	})
 }
 
-func TestStateCookie_SetCookieAttributes(t *testing.T) {
+func TestLoginFlow_Refuses(t *testing.T) {
 	rec := httptest.NewRecorder()
-	setStateCookie(rec, "", "abc123")
+	f := startLoginFlow(rec, "", "github", "")
+	cases := map[string]func() (*http.Request, string, string){
+		"mismatched query state (login CSRF)": func() (*http.Request, string, string) { return callbackWith(rec), "github", "different" },
+		"empty query state":                   func() (*http.Request, string, string) { return callbackWith(rec), "github", "" },
+		"another provider's callback":         func() (*http.Request, string, string) { return callbackWith(rec), "google", f.State },
+		"no cookie": func() (*http.Request, string, string) {
+			return httptest.NewRequest(http.MethodGet, "/v1/auth/github/callback", nil), "github", f.State
+		},
+		"tampered cookie": func() (*http.Request, string, string) {
+			r := httptest.NewRequest(http.MethodGet, "/v1/auth/github/callback", nil)
+			raw, err := base64.RawURLEncoding.DecodeString(rec.Result().Cookies()[0].Value)
+			require.NoError(t, err)
+			raw[len(raw)/2] ^= 0x01
+			r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: base64.RawURLEncoding.EncodeToString(raw)})
+			return r, "github", f.State
+		},
+		"not a sealed value": func() (*http.Request, string, string) {
+			r := httptest.NewRequest(http.MethodGet, "/v1/auth/github/callback", nil)
+			r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: f.State})
+			return r, "github", f.State
+		},
+		// A sign-in started on a replica of the previous release, during a roll.
+		"previous release's signed state": func() (*http.Request, string, string) {
+			r := httptest.NewRequest(http.MethodGet, "/v1/auth/github/callback", nil)
+			r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: f.State + ".0123456789abcdef"})
+			return r, "github", f.State
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			r, provider, state := c()
+			_, ok := finishLoginFlow(httptest.NewRecorder(), r, "", provider, state)
+			assert.False(t, ok)
+		})
+	}
+}
+
+func TestLoginFlow_RefusesAnExpiredFlow(t *testing.T) {
+	// Seal a flow that expired a second ago with the real key.
+	f := loginFlow{Provider: "github", State: "abc123", Expires: time.Now().Add(-time.Second).Unix()}
+	plain, err := json.Marshal(f)
+	require.NoError(t, err)
+	gcm := loginAEAD()
+	nonce := make([]byte, gcm.NonceSize())
+	r := httptest.NewRequest(http.MethodGet, "/v1/auth/github/callback", nil)
+	r.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: base64.RawURLEncoding.EncodeToString(gcm.Seal(nonce, nonce, plain, loginFlowAAD("github")))})
+	_, ok := finishLoginFlow(httptest.NewRecorder(), r, "", "github", "abc123")
+	assert.False(t, ok)
+}
+
+func TestLoginFlow_CallbackClearsTheCookie(t *testing.T) {
+	rec := httptest.NewRecorder()
+	f := startLoginFlow(rec, "/hr", "github", "")
+	out := httptest.NewRecorder()
+	_, ok := finishLoginFlow(out, callbackWith(rec), "/hr", "github", f.State)
+	require.True(t, ok)
+	cookies := out.Result().Cookies()
+	require.Len(t, cookies, 1)
+	assert.Equal(t, oauthStateCookie, cookies[0].Name)
+	assert.Less(t, cookies[0].MaxAge, 0, "the browser drops the flow, so it cannot be sent again")
+}
+
+func TestLoginFlow_SetCookieAttributes(t *testing.T) {
+	rec := httptest.NewRecorder()
+	startLoginFlow(rec, "", "github", "")
 	cookies := rec.Result().Cookies()
 	require.Len(t, cookies, 1)
 	c := cookies[0]
@@ -368,7 +438,7 @@ func TestStateCookie_SetCookieAttributes(t *testing.T) {
 	assert.True(t, c.HttpOnly, "state cookie must be HttpOnly")
 	assert.True(t, c.Secure, "state cookie must be Secure")
 	assert.Equal(t, http.SameSiteLaxMode, c.SameSite, "Lax is required to survive the OAuth redirect")
-	assert.NotEqual(t, "abc123", c.Value, "stored value must be signed, not the raw state")
+	assert.Equal(t, int(loginFlowTTL.Seconds()), c.MaxAge)
 }
 
 func TestSessionStore_ConcurrentCreate(t *testing.T) {
@@ -395,4 +465,15 @@ func TestSessionStore_ConcurrentCreate(t *testing.T) {
 		seen[tok] = struct{}{}
 	}
 	assert.Len(t, seen, 100, "all tokens must be unique")
+}
+
+// Without an OAuth client secret (local dev) the flow is sealed under a per-process
+// key: one process, so it still completes.
+func TestLoginFlow_WorksWithoutASecret(t *testing.T) {
+	withSessionKey(t, "", func() {
+		rec := httptest.NewRecorder()
+		f := startLoginFlow(rec, "", "github", "")
+		_, ok := finishLoginFlow(httptest.NewRecorder(), callbackWith(rec), "", "github", f.State)
+		assert.True(t, ok)
+	})
 }
