@@ -18,6 +18,12 @@ import (
 
 const testGoogleClient = "client-1.apps.googleusercontent.com"
 
+// testNonce is the OIDC nonce every sign-in in these tests sends, so the canned ID
+// tokens below can carry it.
+const testNonce = "test-nonce-0123456789abcdef"
+
+func init() { newNonce = func() string { return testNonce } }
+
 func googleTestToken(t *testing.T, claims map[string]any) string {
 	t.Helper()
 	enc := func(v any) string {
@@ -37,6 +43,7 @@ func workspaceClaims() map[string]any {
 		"email_verified": true,
 		"hd":             "example.com",
 		"exp":            time.Now().Add(time.Hour).Unix(),
+		"nonce":          testNonce,
 	}
 }
 
@@ -56,7 +63,7 @@ func newTestGoogleAuth(tokenURL string) *googleAuth {
 
 func TestGoogleIdentity_AcceptsWorkspaceAccount(t *testing.T) {
 	g := newTestGoogleAuth("")
-	login, sub, err := g.identity(googleTestToken(t, workspaceClaims()), time.Now())
+	login, sub, err := g.identity(googleTestToken(t, workspaceClaims()), loginFlow{Nonce: testNonce}, time.Now())
 	require.NoError(t, err)
 	assert.Equal(t, "alice@example.com", login)
 	assert.Equal(t, "1234567890", sub)
@@ -82,12 +89,12 @@ func TestGoogleIdentity_Refuses(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c := workspaceClaims()
 			mutate(c)
-			_, _, err := g.identity(googleTestToken(t, c), time.Now())
+			_, _, err := g.identity(googleTestToken(t, c), loginFlow{Nonce: testNonce}, time.Now())
 			assert.Error(t, err)
 		})
 	}
 	t.Run("malformed token", func(t *testing.T) {
-		_, _, err := g.identity("not-a-jwt", time.Now())
+		_, _, err := g.identity("not-a-jwt", loginFlow{Nonce: testNonce}, time.Now())
 		assert.Error(t, err)
 	})
 }
@@ -96,14 +103,14 @@ func TestGoogleIdentity_AcceptsBareIssuerAndDomainCase(t *testing.T) {
 	c := workspaceClaims()
 	c["iss"] = "accounts.google.com"
 	c["hd"] = "Example.COM"
-	_, _, err := newTestGoogleAuth("").identity(googleTestToken(t, c), time.Now())
+	_, _, err := newTestGoogleAuth("").identity(googleTestToken(t, c), loginFlow{Nonce: testNonce}, time.Now())
 	assert.NoError(t, err)
 }
 
 func TestGoogleIdentity_NoDomainStillNeedsVerifiedEmail(t *testing.T) {
 	c := workspaceClaims()
 	c["email_verified"] = false
-	_, _, err := newGoogleAuth(GoogleOAuthConfig{ClientID: testGoogleClient}).identity(googleTestToken(t, c), time.Now())
+	_, _, err := newGoogleAuth(GoogleOAuthConfig{ClientID: testGoogleClient}).identity(googleTestToken(t, c), loginFlow{Nonce: testNonce}, time.Now())
 	assert.Error(t, err)
 }
 
@@ -112,7 +119,7 @@ func TestGoogleIdentity_AnyDomainOnlyWhenUnset(t *testing.T) {
 	c := workspaceClaims()
 	delete(c, "hd")
 	c["email"] = "someone@gmail.com"
-	login, _, err := g.identity(googleTestToken(t, c), time.Now())
+	login, _, err := g.identity(googleTestToken(t, c), loginFlow{Nonce: testNonce}, time.Now())
 	require.NoError(t, err)
 	assert.Equal(t, "someone@gmail.com", login)
 }
@@ -313,33 +320,6 @@ func TestMCPSigningSeed_UnchangedWithoutGoogle(t *testing.T) {
 	assert.Equal(t, mcpSigningSeed("gh", "az"), mcpSigningSeed("gh", "az", ""))
 }
 
-// End to end across replicas: a sign-in started on one instance completes on another
-// that holds the same OAuth client secret, and fails on one that does not.
-func TestGoogleCallback_CompletesOnAnotherReplica(t *testing.T) {
-	token := googleTestToken(t, workspaceClaims())
-	withSessionKey(t, "secret-derived-session-key", func() {
-		_, state, cookies := googleLogin(t, tokenReply(t, token), "")
-		tokenSrv := httptest.NewServer(tokenReply(t, token))
-		t.Cleanup(tokenSrv.Close)
-		other := newTestGoogleAuth(tokenSrv.URL)
-		w := googleReturn(other, state, cookies)
-		require.Equal(t, http.StatusFound, w.Code, w.Body.String())
-		assert.NotNil(t, sessionCookie(w))
-	})
-}
-
-func TestGoogleCallback_RefusesAnExpiredSignIn(t *testing.T) {
-	f := loginFlow{Provider: "google", State: "s1", Expires: time.Now().Add(-time.Second).Unix()}
-	plain, err := json.Marshal(f)
-	require.NoError(t, err)
-	gcm := loginAEAD()
-	nonce := make([]byte, gcm.NonceSize())
-	cookie := &http.Cookie{Name: oauthStateCookie, Value: base64.RawURLEncoding.EncodeToString(gcm.Seal(nonce, nonce, plain, loginFlowAAD("google")))}
-	w := googleReturn(newTestGoogleAuth(""), "s1", []*http.Cookie{cookie})
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Nil(t, sessionCookie(w))
-}
-
 // PKCE (RFC 7636, S256): the redirect carries only the hash of the verifier, and the
 // token request carries the verifier itself, so a code intercepted on the way back is
 // useless without the browser's flow cookie.
@@ -392,4 +372,90 @@ func loginFlowFromCookies(t *testing.T, cookies []*http.Cookie, provider string)
 		http.SetCookie(rec, c)
 	}
 	return loginFlowOf(t, rec, provider)
+}
+
+// The ID token must carry the nonce this sign-in sent (OIDC Core 3.1.2.1), which
+// binds the token to the browser's flow and stops a token minted for another
+// sign-in from being replayed into this one.
+func TestGoogleCallback_RefusesAnIDTokenWithAnotherNonce(t *testing.T) {
+	for name, nonce := range map[string]any{"other nonce": "someone-elses", "no nonce": nil} {
+		t.Run(name, func(t *testing.T) {
+			c := workspaceClaims()
+			if nonce == nil {
+				delete(c, "nonce")
+			} else {
+				c["nonce"] = nonce
+			}
+			w := googleCallback(t, googleTestToken(t, c))
+			assert.Equal(t, http.StatusForbidden, w.Code)
+			assert.Nil(t, sessionCookie(w))
+		})
+	}
+}
+
+func TestOIDCLogin_SendsTheFlowNonce(t *testing.T) {
+	for name, login := range map[string]func(http.ResponseWriter, *http.Request){
+		"google": newTestGoogleAuth("").handleLogin,
+		"entra":  newAzureAuth(AzureOAuthConfig{ClientID: "az", TenantID: "t", PublicURL: "https://xray.example"}).handleLogin,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			login(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/"+name, nil))
+			loc, err := url.Parse(rec.Header().Get("Location"))
+			require.NoError(t, err)
+			flow := loginFlowFromCookies(t, rec.Result().Cookies(), name)
+			assert.NotEmpty(t, flow.Nonce)
+			assert.Equal(t, flow.Nonce, loc.Query().Get("nonce"))
+		})
+	}
+}
+
+func TestLoginFlow_NonceMatches(t *testing.T) {
+	f := loginFlow{Nonce: testNonce}
+	assert.True(t, f.nonceMatches(googleTestToken(t, map[string]any{"nonce": testNonce})))
+	assert.False(t, f.nonceMatches(googleTestToken(t, map[string]any{"nonce": "x"})))
+	assert.False(t, f.nonceMatches(googleTestToken(t, map[string]any{})))
+	assert.False(t, f.nonceMatches("not-a-jwt"))
+	assert.False(t, loginFlow{}.nonceMatches(googleTestToken(t, map[string]any{"nonce": ""})), "an empty nonce never matches")
+}
+
+// End to end across replicas: a sign-in started on one instance completes on another
+// that holds the same OAuth client secret, and fails on one that does not.
+func TestGoogleCallback_CompletesOnAnotherReplica(t *testing.T) {
+	token := googleTestToken(t, workspaceClaims())
+	withSessionKey(t, "secret-derived-session-key", func() {
+		_, state, cookies := googleLogin(t, tokenReply(t, token), "")
+		tokenSrv := httptest.NewServer(tokenReply(t, token))
+		t.Cleanup(tokenSrv.Close)
+		other := newTestGoogleAuth(tokenSrv.URL)
+		w := googleReturn(other, state, cookies)
+		require.Equal(t, http.StatusFound, w.Code, w.Body.String())
+		assert.NotNil(t, sessionCookie(w))
+	})
+}
+
+func TestGoogleCallback_RefusesAnExpiredSignIn(t *testing.T) {
+	f := loginFlow{Provider: "google", State: "s1", Expires: time.Now().Add(-time.Second).Unix()}
+	plain, err := json.Marshal(f)
+	require.NoError(t, err)
+	gcm := loginAEAD()
+	nonce := make([]byte, gcm.NonceSize())
+	cookie := &http.Cookie{Name: oauthStateCookie, Value: base64.RawURLEncoding.EncodeToString(gcm.Seal(nonce, nonce, plain, loginFlowAAD("google")))}
+	w := googleReturn(newTestGoogleAuth(""), "s1", []*http.Cookie{cookie})
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Nil(t, sessionCookie(w))
+}
+
+// Every sign-in gets its own state, verifier and nonce from crypto/rand (the other
+// tests fix the nonce through newNonce; this one uses the real generator).
+func TestLoginFlow_EachSignInIsUnique(t *testing.T) {
+	fixed := newNonce
+	newNonce = func() string { return randomHex(16) }
+	t.Cleanup(func() { newNonce = fixed })
+	a := startLoginFlow(httptest.NewRecorder(), "", "google", "")
+	b := startLoginFlow(httptest.NewRecorder(), "", "google", "")
+	assert.NotEqual(t, a.State, b.State)
+	assert.NotEqual(t, a.Verifier, b.Verifier)
+	assert.NotEqual(t, a.Nonce, b.Nonce)
+	assert.Len(t, a.Nonce, 32)
 }

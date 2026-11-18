@@ -36,12 +36,13 @@ func (a *azureAuth) handleLogin(w http.ResponseWriter, r *http.Request) {
 	flow := startLoginFlow(w, BasePath(a.cfg.PublicURL), "entra", resolveUIOrigin(r.URL.Query().Get("ui"), a.cfg.UICallbackOrigins))
 	callbackURL := a.cfg.PublicURL + "/v1/auth/entra/callback"
 	authURL := fmt.Sprintf(
-		"https://login.microsoftonline.com/%s/oauth2/v2.0/authorize?client_id=%s&response_type=code&redirect_uri=%s&scope=openid+profile+email&state=%s&code_challenge=%s&code_challenge_method=S256",
+		"https://login.microsoftonline.com/%s/oauth2/v2.0/authorize?client_id=%s&response_type=code&redirect_uri=%s&scope=openid+profile+email&state=%s&code_challenge=%s&code_challenge_method=S256&nonce=%s",
 		url.PathEscape(a.cfg.TenantID),
 		url.QueryEscape(a.cfg.ClientID),
 		url.QueryEscape(callbackURL),
 		url.QueryEscape(flow.State),
 		url.QueryEscape(flow.challenge()),
+		url.QueryEscape(flow.Nonce),
 	)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -58,9 +59,13 @@ func (a *azureAuth) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, err := a.exchangeCode(code, flow.Verifier)
+	accessToken, idToken, err := a.exchangeCode(code, flow.Verifier)
 	if err != nil {
 		http.Error(w, "token exchange failed", http.StatusBadGateway)
+		return
+	}
+	if !flow.nonceMatches(idToken) {
+		http.Error(w, "invalid sign-in response", http.StatusBadRequest)
 		return
 	}
 
@@ -92,7 +97,7 @@ func (a *azureAuth) handleCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, uiCallbackRedirect(flow.UIOrigin, token, BasePath(a.cfg.PublicURL)), http.StatusFound)
 }
 
-func (a *azureAuth) exchangeCode(code, verifier string) (string, error) {
+func (a *azureAuth) exchangeCode(code, verifier string) (string, string, error) {
 	callbackURL := a.cfg.PublicURL + "/v1/auth/entra/callback"
 	resp, err := http.PostForm(
 		fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", url.PathEscape(a.cfg.TenantID)),
@@ -107,28 +112,29 @@ func (a *azureAuth) exchangeCode(code, verifier string) (string, error) {
 		},
 	)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	var tok struct {
 		AccessToken string `json:"access_token"`
+		IDToken     string `json:"id_token"`
 		Error       string `json:"error"`
 		ErrorDesc   string `json:"error_description"`
 	}
 	if err := json.Unmarshal(body, &tok); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if tok.Error != "" {
-		return "", fmt.Errorf("azure token error: %s — %s", tok.Error, tok.ErrorDesc)
+		return "", "", fmt.Errorf("azure token error: %s — %s", tok.Error, tok.ErrorDesc)
 	}
 	if tok.AccessToken == "" {
-		return "", fmt.Errorf("no access_token in response")
+		return "", "", fmt.Errorf("no access_token in response")
 	}
-	return tok.AccessToken, nil
+	return tok.AccessToken, tok.IDToken, nil
 }
 
 // azureUserLogin fetches the authenticated user's display login and object ID.

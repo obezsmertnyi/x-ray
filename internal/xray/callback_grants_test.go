@@ -91,10 +91,11 @@ func TestGitHubCallback_GatedByAccessLists(t *testing.T) {
 }
 
 func TestEntraCallback_GatedByAccessLists(t *testing.T) {
+	idToken := googleTestToken(t, map[string]any{"nonce": testNonce}) // Entra's ID token carries the sign-in's nonce
 	stubProviders(t, func(r *http.Request) (int, string) {
 		switch r.URL.Host + r.URL.Path {
 		case "login.microsoftonline.com/tenant/oauth2/v2.0/token":
-			return 200, `{"access_token":"az-token"}`
+			return 200, `{"access_token":"az-token","id_token":"` + idToken + `"}`
 		case "graph.microsoft.com/v1.0/me":
 			return 200, `{"id":"` + oidA + `","userPrincipalName":"carol@example.com"}`
 		}
@@ -116,4 +117,18 @@ func TestEntraCallback_GatedByAccessLists(t *testing.T) {
 	_, uid, ok := sessions.validate(c.Value)
 	require.True(t, ok)
 	assert.Equal(t, "azure:"+oidA, uid)
+}
+
+func TestEntraCallback_RefusesAnIDTokenWithAnotherNonce(t *testing.T) {
+	idToken := googleTestToken(t, map[string]any{"nonce": "someone-elses"})
+	stubProviders(t, func(r *http.Request) (int, string) {
+		if r.URL.Host+r.URL.Path == "login.microsoftonline.com/tenant/oauth2/v2.0/token" {
+			return 200, `{"access_token":"az-token","id_token":"` + idToken + `"}`
+		}
+		t.Errorf("unexpected provider call %s", r.URL)
+		return 404, ""
+	})
+	a := newAzureAuth(AzureOAuthConfig{ClientID: "id", ClientSecret: "s", TenantID: "tenant", PublicURL: "https://xray.example"})
+	w := runCallback(t, a, "/v1/auth/entra")
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -35,7 +36,39 @@ type loginFlow struct {
 	// Verifier is the PKCE code verifier (RFC 7636, S256): the provider gets only its
 	// hash at the redirect, and the code it returns is good only with the verifier.
 	Verifier string `json:"v"`
-	Expires  int64  `json:"e"`
+	// Nonce goes to an OpenID Connect provider at the redirect and must come back in
+	// the ID token, which binds the token to this sign-in (OIDC Core 3.1.2.1).
+	Nonce   string `json:"n"`
+	Expires int64  `json:"e"`
+}
+
+// newNonce mints a flow's OIDC nonce; a variable so tests can fix it.
+var newNonce = func() string { return randomHex(16) }
+
+// idTokenNonce returns the nonce claim of an ID token received from the provider's
+// token endpoint over TLS (its signature is not re-verified, OIDC Core 3.1.3.7).
+func idTokenNonce(idToken string) (string, bool) {
+	parts := strings.Split(idToken, ".")
+	if len(parts) != 3 {
+		return "", false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", false
+	}
+	var c struct {
+		Nonce string `json:"nonce"`
+	}
+	if json.Unmarshal(payload, &c) != nil || c.Nonce == "" {
+		return "", false
+	}
+	return c.Nonce, true
+}
+
+// nonceMatches reports whether an ID token carries the flow's nonce.
+func (f loginFlow) nonceMatches(idToken string) bool {
+	n, ok := idTokenNonce(idToken)
+	return ok && f.Nonce != "" && subtle.ConstantTimeCompare([]byte(n), []byte(f.Nonce)) == 1
 }
 
 // challenge is the PKCE S256 code challenge of the flow's verifier.
@@ -96,6 +129,7 @@ func startLoginFlow(w http.ResponseWriter, base, provider, uiOrigin string) logi
 	f := loginFlow{
 		Provider: provider, State: randomHex(16), UIOrigin: uiOrigin,
 		Verifier: base64.RawURLEncoding.EncodeToString(verifier), // 43 characters, RFC 7636 4.1
+		Nonce:    newNonce(),
 		Expires:  time.Now().Add(loginFlowTTL).Unix(),
 	}
 	plain, err := json.Marshal(f)

@@ -53,6 +53,7 @@ func (g *googleAuth) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"state":                 {flow.State},
 		"code_challenge":        {flow.challenge()},
 		"code_challenge_method": {"S256"},
+		"nonce":                 {flow.Nonce},
 	}
 	// hd only narrows the account picker; the callback enforces the domain.
 	if g.cfg.Domain != "" {
@@ -76,7 +77,7 @@ func (g *googleAuth) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "token exchange failed", http.StatusBadGateway)
 		return
 	}
-	login, sub, err := g.identity(idToken, time.Now())
+	login, sub, err := g.identity(idToken, flow, time.Now())
 	if err != nil || !grants.allowsUser("google:"+sub, login) {
 		http.Error(w, "this Google account may not sign in", http.StatusForbidden)
 		return
@@ -136,7 +137,7 @@ func (g *googleAuth) exchangeCode(code, verifier string) (string, error) {
 // re-verified (OpenID Connect Core 3.1.3.7); issuer, audience and expiry still are.
 // The domain is enforced on hd, which Google sets only for Workspace accounts: an
 // email ending in the domain is not proof, a consumer account can carry any email.
-func (g *googleAuth) identity(idToken string, now time.Time) (string, string, error) {
+func (g *googleAuth) identity(idToken string, flow loginFlow, now time.Time) (string, string, error) {
 	parts := strings.Split(idToken, ".")
 	if len(parts) != 3 {
 		return "", "", fmt.Errorf("malformed id_token")
@@ -166,6 +167,8 @@ func (g *googleAuth) identity(idToken string, now time.Time) (string, string, er
 		return "", "", fmt.Errorf("id_token expired")
 	case c.Sub == "":
 		return "", "", fmt.Errorf("id_token has no subject")
+	case !flow.nonceMatches(idToken):
+		return "", "", fmt.Errorf("id_token nonce does not match the sign-in")
 	case c.Email == "" || !c.EmailVerified:
 		return "", "", fmt.Errorf("email missing or not verified")
 	case g.cfg.Domain != "" && !strings.EqualFold(c.HD, g.cfg.Domain):
