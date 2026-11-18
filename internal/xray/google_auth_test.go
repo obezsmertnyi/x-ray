@@ -1,6 +1,7 @@
 package xray
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -337,4 +338,58 @@ func TestGoogleCallback_RefusesAnExpiredSignIn(t *testing.T) {
 	w := googleReturn(newTestGoogleAuth(""), "s1", []*http.Cookie{cookie})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Nil(t, sessionCookie(w))
+}
+
+// PKCE (RFC 7636, S256): the redirect carries only the hash of the verifier, and the
+// token request carries the verifier itself, so a code intercepted on the way back is
+// useless without the browser's flow cookie.
+func TestGoogleLogin_UsesPKCE(t *testing.T) {
+	var challenge string
+	var sawVerifier bool
+	token := googleTestToken(t, workspaceClaims())
+	g, state, cookies := googleLogin(t, func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseForm())
+		sum := sha256.Sum256([]byte(r.PostForm.Get("code_verifier")))
+		sawVerifier = base64.RawURLEncoding.EncodeToString(sum[:]) == challenge
+		tokenReply(t, token)(w, r)
+	}, "")
+	rec := httptest.NewRecorder()
+	g.handleLogin(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/google", nil))
+	loc, err := url.Parse(rec.Header().Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, "S256", loc.Query().Get("code_challenge_method"))
+	assert.Len(t, loc.Query().Get("code_challenge"), 43)
+
+	// The flow googleLogin started: its challenge is what Google saw.
+	flow := loginFlowFromCookies(t, cookies, "google")
+	challenge = flow.challenge()
+	require.Equal(t, http.StatusFound, googleReturn(g, state, cookies).Code)
+	assert.True(t, sawVerifier, "the token request must carry the verifier whose S256 hash was sent at the redirect")
+}
+
+func TestGitHubAndEntraLogin_UsePKCE(t *testing.T) {
+	for name, login := range map[string]func(http.ResponseWriter, *http.Request){
+		"github": newGitHubAuth(GitHubOAuthConfig{ClientID: "gh", PublicURL: "https://xray.example"}).handleLogin,
+		"entra":  newAzureAuth(AzureOAuthConfig{ClientID: "az", TenantID: "t", PublicURL: "https://xray.example"}).handleLogin,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			login(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/"+name, nil))
+			loc, err := url.Parse(rec.Header().Get("Location"))
+			require.NoError(t, err)
+			flow := loginFlowFromCookies(t, rec.Result().Cookies(), name)
+			assert.Equal(t, "S256", loc.Query().Get("code_challenge_method"))
+			assert.Equal(t, flow.challenge(), loc.Query().Get("code_challenge"))
+		})
+	}
+}
+
+// loginFlowFromCookies opens the flow carried by a login's cookies.
+func loginFlowFromCookies(t *testing.T, cookies []*http.Cookie, provider string) loginFlow {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	for _, c := range cookies {
+		http.SetCookie(rec, c)
+	}
+	return loginFlowOf(t, rec, provider)
 }

@@ -58,6 +58,10 @@ func githubStub(t *testing.T) stubTransport {
 	return func(r *http.Request) (int, string) {
 		switch r.URL.Host + r.URL.Path {
 		case "github.com/login/oauth/access_token":
+			// PKCE: the exchange carries the 43-character verifier (RFC 7636 4.1).
+			if err := r.ParseForm(); err != nil || len(r.PostForm.Get("code_verifier")) != 43 {
+				t.Errorf("token exchange without a PKCE verifier: %q", r.PostForm.Get("code_verifier"))
+			}
 			return 200, "access_token=gh-token"
 		case "api.github.com/user":
 			return 200, `{"login":"octocat","id":42}`

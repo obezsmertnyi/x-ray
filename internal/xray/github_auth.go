@@ -38,10 +38,11 @@ func (g *githubAuth) handleLogin(w http.ResponseWriter, r *http.Request) {
 	flow := startLoginFlow(w, BasePath(g.cfg.PublicURL), "github", resolveUIOrigin(r.URL.Query().Get("ui"), g.cfg.UICallbackOrigins))
 	callbackURL := g.cfg.PublicURL + "/v1/auth/github/callback"
 	authURL := fmt.Sprintf(
-		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=read:org&state=%s",
+		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=read:org&state=%s&code_challenge=%s&code_challenge_method=S256",
 		url.QueryEscape(g.cfg.ClientID),
 		url.QueryEscape(callbackURL),
 		url.QueryEscape(flow.State),
+		url.QueryEscape(flow.challenge()),
 	)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -61,7 +62,7 @@ func (g *githubAuth) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Exchange code for GitHub access token.
-	ghToken, err := g.exchangeCode(code)
+	ghToken, err := g.exchangeCode(code, flow.Verifier)
 	if err != nil {
 		http.Error(w, "token exchange failed", http.StatusBadGateway)
 		return
@@ -129,7 +130,7 @@ func (g *githubAuth) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 // exchangeCode POSTs to GitHub to exchange an OAuth code for an access token.
-func (g *githubAuth) exchangeCode(code string) (string, error) {
+func (g *githubAuth) exchangeCode(code, verifier string) (string, error) {
 	resp, err := http.PostForm("https://github.com/login/oauth/access_token", url.Values{
 		"client_id":     {g.cfg.ClientID},
 		"client_secret": {g.cfg.ClientSecret},
@@ -137,7 +138,8 @@ func (g *githubAuth) exchangeCode(code string) (string, error) {
 		// Re-assert the redirect_uri used at /authorize (RFC 6749 §4.1.3), so the
 		// exchange is bound to it as defense-in-depth against code interception
 		// (AUDIT F-10).
-		"redirect_uri": {g.cfg.PublicURL + "/v1/auth/github/callback"},
+		"redirect_uri":  {g.cfg.PublicURL + "/v1/auth/github/callback"},
+		"code_verifier": {verifier},
 	})
 	if err != nil {
 		return "", err

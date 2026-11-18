@@ -36,11 +36,12 @@ func (a *azureAuth) handleLogin(w http.ResponseWriter, r *http.Request) {
 	flow := startLoginFlow(w, BasePath(a.cfg.PublicURL), "entra", resolveUIOrigin(r.URL.Query().Get("ui"), a.cfg.UICallbackOrigins))
 	callbackURL := a.cfg.PublicURL + "/v1/auth/entra/callback"
 	authURL := fmt.Sprintf(
-		"https://login.microsoftonline.com/%s/oauth2/v2.0/authorize?client_id=%s&response_type=code&redirect_uri=%s&scope=openid+profile+email&state=%s",
+		"https://login.microsoftonline.com/%s/oauth2/v2.0/authorize?client_id=%s&response_type=code&redirect_uri=%s&scope=openid+profile+email&state=%s&code_challenge=%s&code_challenge_method=S256",
 		url.PathEscape(a.cfg.TenantID),
 		url.QueryEscape(a.cfg.ClientID),
 		url.QueryEscape(callbackURL),
 		url.QueryEscape(flow.State),
+		url.QueryEscape(flow.challenge()),
 	)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -57,7 +58,7 @@ func (a *azureAuth) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, err := a.exchangeCode(code)
+	accessToken, err := a.exchangeCode(code, flow.Verifier)
 	if err != nil {
 		http.Error(w, "token exchange failed", http.StatusBadGateway)
 		return
@@ -91,7 +92,7 @@ func (a *azureAuth) handleCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, uiCallbackRedirect(flow.UIOrigin, token, BasePath(a.cfg.PublicURL)), http.StatusFound)
 }
 
-func (a *azureAuth) exchangeCode(code string) (string, error) {
+func (a *azureAuth) exchangeCode(code, verifier string) (string, error) {
 	callbackURL := a.cfg.PublicURL + "/v1/auth/entra/callback"
 	resp, err := http.PostForm(
 		fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", url.PathEscape(a.cfg.TenantID)),
@@ -102,6 +103,7 @@ func (a *azureAuth) exchangeCode(code string) (string, error) {
 			"redirect_uri":  {callbackURL},
 			"grant_type":    {"authorization_code"},
 			"scope":         {"openid profile email"},
+			"code_verifier": {verifier},
 		},
 	)
 	if err != nil {

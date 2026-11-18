@@ -32,7 +32,16 @@ type loginFlow struct {
 	// callback completes. Empty — the default — redirects to "/" on this host,
 	// which is the same-origin case where the cookie is the whole credential.
 	UIOrigin string `json:"u,omitempty"`
+	// Verifier is the PKCE code verifier (RFC 7636, S256): the provider gets only its
+	// hash at the redirect, and the code it returns is good only with the verifier.
+	Verifier string `json:"v"`
 	Expires  int64  `json:"e"`
+}
+
+// challenge is the PKCE S256 code challenge of the flow's verifier.
+func (f loginFlow) challenge() string {
+	sum := sha256.Sum256([]byte(f.Verifier))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 // processLoginKey is used only when no OAuth client secret is set (local dev), where
@@ -80,7 +89,15 @@ func randomHex(n int) string {
 // startLoginFlow begins a sign-in with provider: it mints the state and sets the
 // cookie that carries the flow. base is BasePath(PublicURL).
 func startLoginFlow(w http.ResponseWriter, base, provider, uiOrigin string) loginFlow {
-	f := loginFlow{Provider: provider, State: randomHex(16), UIOrigin: uiOrigin, Expires: time.Now().Add(loginFlowTTL).Unix()}
+	verifier := make([]byte, 32)
+	if _, err := rand.Read(verifier); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
+	f := loginFlow{
+		Provider: provider, State: randomHex(16), UIOrigin: uiOrigin,
+		Verifier: base64.RawURLEncoding.EncodeToString(verifier), // 43 characters, RFC 7636 4.1
+		Expires:  time.Now().Add(loginFlowTTL).Unix(),
+	}
 	plain, err := json.Marshal(f)
 	if err != nil {
 		panic("login flow: " + err.Error()) // unreachable: plain struct of strings and an int

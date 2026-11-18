@@ -46,11 +46,13 @@ func (g *googleAuth) callbackURL() string { return g.cfg.PublicURL + "/v1/auth/g
 func (g *googleAuth) handleLogin(w http.ResponseWriter, r *http.Request) {
 	flow := startLoginFlow(w, BasePath(g.cfg.PublicURL), "google", resolveUIOrigin(r.URL.Query().Get("ui"), g.cfg.UICallbackOrigins))
 	q := url.Values{
-		"client_id":     {g.cfg.ClientID},
-		"response_type": {"code"},
-		"redirect_uri":  {g.callbackURL()},
-		"scope":         {"openid email profile"},
-		"state":         {flow.State},
+		"client_id":             {g.cfg.ClientID},
+		"response_type":         {"code"},
+		"redirect_uri":          {g.callbackURL()},
+		"scope":                 {"openid email profile"},
+		"state":                 {flow.State},
+		"code_challenge":        {flow.challenge()},
+		"code_challenge_method": {"S256"},
 	}
 	// hd only narrows the account picker; the callback enforces the domain.
 	if g.cfg.Domain != "" {
@@ -69,7 +71,7 @@ func (g *googleAuth) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idToken, err := g.exchangeCode(code)
+	idToken, err := g.exchangeCode(code, flow.Verifier)
 	if err != nil {
 		http.Error(w, "token exchange failed", http.StatusBadGateway)
 		return
@@ -95,13 +97,14 @@ func (g *googleAuth) handleCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 // exchangeCode trades the authorization code for the ID token.
-func (g *googleAuth) exchangeCode(code string) (string, error) {
+func (g *googleAuth) exchangeCode(code, verifier string) (string, error) {
 	resp, err := googleHTTP.PostForm(g.tokenURL, url.Values{
 		"client_id":     {g.cfg.ClientID},
 		"client_secret": {g.cfg.ClientSecret},
 		"code":          {code},
 		"redirect_uri":  {g.callbackURL()},
 		"grant_type":    {"authorization_code"},
+		"code_verifier": {verifier},
 	})
 	if err != nil {
 		return "", err

@@ -74,7 +74,8 @@ copy for these has the same behaviour pinned.
      per-process signing key, and a callback on another replica failed with `invalid state`. The key is
      SHA-256 of the ADR-047 session key and `login-flow`; the AEAD's associated data names the format version and the
      provider. Rotating any provider's client secret, and a roll from a release without the cookie, drop the sign-ins
-     in flight (400, the user signs in again).
+     in flight (400, the user signs in again). The cookie also carries the PKCE verifier (RFC 7636, S256), so a code
+     taken from the redirect is useless without it.
    - **MCP authorization codes.** `/authorize` answers once the peers acknowledge the code, because the client's
      next call is `/token` and the Service may route it to any replica; a redeemed code is dropped everywhere.
    With the mesh carrying everything the stats flush held, the flush is leader-only: the leader writes the
